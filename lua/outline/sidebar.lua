@@ -151,6 +151,9 @@ function Sidebar:setup_keymaps()
     fold_all = { '_set_all_folded', { true } },
     unfold_all = { '_set_all_folded', { false } },
     fold_reset = { '_set_all_folded', {} },
+    open_in_vsplit = { '_open_with', { { mode = 'vsplit' } } },
+    open_in_split = { '_open_with', { { mode = 'split' } } },
+    open_in_tab = { '_open_with', { { mode = 'tabnew %' } } },
     rename_symbol = {
       providers.action, { self, 'rename_symbol', { self } }
     },
@@ -276,6 +279,11 @@ end
 ---@param current outline.FlatSymbol?
 function Sidebar:update_cursor_pos(current)
   local col = 0
+
+  if not self.view.win then
+    return
+  end
+
   local buf = vim.api.nvim_win_get_buf(self.code.win)
   if cfg.o.outline_items.show_symbol_lineno then
     -- Padding area between lineno column and start of guides
@@ -621,6 +629,47 @@ function Sidebar:open(opts)
       self:focus()
     end
   end
+end
+
+---@param opts outline.OutlineOpenWith?
+function Sidebar:_open_with(opts)
+  if not opts then
+    return
+  end
+
+  if not self.provider then
+    return
+  end
+
+  local node = self:_current_node()
+  if not node then
+    return
+  end
+
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    vim.notify('outline.nvim: Code window closed', vim.log.levels.WARN)
+    return
+  end
+
+  vim.api.nvim_set_current_win(self.code.win)
+
+  vim.cmd(opts.mode)
+
+  local cur_win = 0 -- set new current win id
+
+  vim.fn.win_execute(cur_win, "normal! m'")
+  vim.api.nvim_win_set_cursor(cur_win, { node.line + 1, node.character })
+
+  if cfg.o.outline_window.center_on_jump then
+    vim.fn.win_execute(self.code.win, 'normal! zz')
+  end
+
+  utils.flash_highlight(
+    cur_win,
+    node.line + 1,
+    cfg.o.outline_window.jump_highlight_duration,
+    'OutlineJumpHighlight'
+  )
 end
 
 ---@see outline.close_outline

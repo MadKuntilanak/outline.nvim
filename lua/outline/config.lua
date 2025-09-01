@@ -91,6 +91,9 @@ M.defaults = {
     fold_reset = 'R',
     down_and_jump = '<C-j>',
     up_and_jump = '<C-k>',
+    open_in_vsplit = '<C-v>',
+    open_in_split = '<C-s>',
+    open_in_tab = '<C-s>',
   },
   providers = {
     priority = { 'lsp', 'coc', 'markdown', 'norg', 'man' },
