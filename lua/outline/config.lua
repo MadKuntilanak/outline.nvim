@@ -95,7 +95,10 @@ M.defaults = {
     fold_reset = 'R',
     down_and_jump = '<C-j>',
     up_and_jump = '<C-k>',
+
+    filter_symbols = 'F',
   },
+  picker = 'default', -- "default, fzf-lua"
   providers = {
     priority = { 'lsp', 'coc', 'markdown', 'norg', 'man' },
     lsp = {
