@@ -1,5 +1,4 @@
 local Util = require('outline.pickers.utils')
-local fzf = require('fzf-lua')
 
 local function format_title(str, icon, icon_hl)
   return {
@@ -10,17 +9,16 @@ local function format_title(str, icon, icon_hl)
   }
 end
 
+---@param contents string[]
 local function get_width_and_height(contents)
-  local max_height = 30
+  local max_height = 20
   local max_width = 50
 
   local height = #contents + 1
-  local width = 1
+  local width = 0
 
-  for _, ctx in pairs(contents) do
-    if width < #ctx then
-      width = #ctx
-    end
+  for _, symbol in pairs(contents) do
+    width = math.max(width, vim.fn.strdisplaywidth(symbol))
   end
 
   local win_height = max_height < height and max_height or height
@@ -29,30 +27,37 @@ local function get_width_and_height(contents)
   return {
     win_height = win_height,
     win_width = win_width,
-    width_str = width,
   }
 end
 
 return function(opts, contents)
+  local fzf = require('fzf-lua')
+
   local win_opts = get_width_and_height(contents)
+  local pad_entry = 3
 
   local entry_str = {}
   for _, symbol in pairs(contents) do
     if symbol ~= Util.all_kind then
       local kind = opts.o.symbols.icons
       if kind[symbol] then
-        local get_icon = Util.pad_string(kind[symbol].icon, 5)
-        local icon_hl = fzf.utils.ansi_from_hl(kind[symbol].hl, get_icon)
-        entry_str[#entry_str + 1] = string.format('%s %s', icon_hl, Util.strip_whitespace(symbol))
+        local icon = kind[symbol].icon
+        local icon_hl = fzf.utils.ansi_from_hl(kind[symbol].hl, icon)
+        local icon_width = vim.fn.strdisplaywidth(icon)
+
+        local padding = pad_entry - icon_width
+        local pad_str = string.rep(' ', padding)
+
+        table.insert(entry_str, icon_hl .. pad_str .. symbol)
       end
     else
-      entry_str[#entry_str + 1] = symbol
+      table.insert(entry_str, string.format('%-2s %s', '', symbol))
     end
   end
 
-  fzf.fzf_exec(entry_str, {
-    ---@diagnostic disable: missing-fields
-    ---@type fzf-lua.config.Winopts
+  ---@diagnostic disable: missing-fields
+  ---@type fzf-lua.config.Defaults
+  local fzf_opts = {
     winopts = {
       title = format_title('Filter Symbols', ' '),
       width = win_opts.win_width,
@@ -66,29 +71,35 @@ return function(opts, contents)
           return
         end
 
-        local filters = {}
+        local symbols = {}
 
         if #selected == 1 then
           local sel = selected[1]
           if sel ~= Util.all_kind then
             local str_e = fzf.utils.strip_ansi_coloring(sel)
-            local mtch_str = str_e:match('[a-zA-Z].*$')
-            if mtch_str then
-              table.insert(filters, mtch_str)
+            local symbol_name = str_e:match('[a-zA-Z].*$')
+            if symbol_name then
+              table.insert(symbols, symbol_name)
             end
           end
         else
           for _, sel in ipairs(selected) do
             local str_e = fzf.utils.strip_ansi_coloring(sel)
-            local mtch_str = str_e:match('[a-zA-Z].*$')
-            if mtch_str then
-              table.insert(filters, mtch_str)
+            local symbol_name = str_e:match('[a-zA-Z].*$')
+            if symbol_name then
+              table.insert(symbols, symbol_name)
             end
           end
         end
 
-        opts.set_filters(filters)
+        opts.set_filters(symbols)
       end,
     },
-  })
+  }
+
+  if type(opts.o.picker) == 'table' then
+    fzf_opts = vim.tbl_deep_extend('force', fzf_opts, opts.o.picker.opts or {})
+  end
+
+  fzf.fzf_exec(entry_str, fzf_opts)
 end

@@ -96,6 +96,11 @@ M.defaults = {
     down_and_jump = '<C-j>',
     up_and_jump = '<C-k>',
 
+    open_in_vsplit = '<C-v>',
+    open_in_split = '<C-s>',
+    open_in_tab = '<C-t>',
+    open_in_float = 'O',
+
     filter_symbols = 'F',
   },
   picker = 'default', -- "default, fzf-lua"

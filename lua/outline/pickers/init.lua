@@ -5,48 +5,62 @@ local function default_picker()
   return 'default'
 end
 
+local silent_warn_notify = false
+
 ---@param picker_name string?
 local function get_picker(picker_name)
   picker_name = picker_name or ''
-  local ok_picker, _ = pcall(require, picker_name)
-  if not ok_picker then
-    picker_name = picker_name
-  end
 
-  if util.is_blank(picker_name) then
+  if util.is_blank(picker_name) or silent_warn_notify then
     picker_name = default_picker()
   end
 
-  local ok, p = pcall(require, string.format('outline.pickers.%s', picker_name))
+  local ok, picker = pcall(require, string.format('outline.pickers.%s', picker_name))
+
   if not ok then
-    vim.notify(
-      string.format('Picker `%s` has not been implemented yet', picker_name),
-      vim.log.levels.ERROR
-    )
-    return
+    if not silent_warn_notify then
+      vim.notify(
+        string.format(
+          'The picker `%s` has not been implemented yet.\nFalling back to the default `vim.ui.select`.',
+          picker_name
+        ),
+        vim.log.levels.WARN
+      )
+
+      silent_warn_notify = true
+    end
+
+    return get_picker('default')
   end
 
-  return p
+  return picker
 end
 
 ---@param sidebar outline.Sidebar
-function M.select_symbols(cfg_symbols, sidebar)
-  local p = get_picker(cfg_symbols.o.picker)
+function M.select_symbols(cfg_outline, sidebar)
+  local picker_name
+  if cfg_outline.o.picker and type(cfg_outline.o.picker) == 'table' then
+    picker_name = cfg_outline.o.picker[1]
+  else
+    picker_name = cfg_outline.o.picker
+  end
 
-  local contents = util.get_contents_symbols(cfg_symbols)
+  local picker = get_picker(picker_name)
+
+  local contents = util.get_contents_symbols(cfg_outline)
   if not contents or #contents == 0 then
     return
   end
 
-  ---@param sel table|nil
-  cfg_symbols.set_filters = function(sel)
-    if #sel == 0 then
-      sel = nil
+  ---@param symbols table|nil
+  cfg_outline.set_filters = function(symbols)
+    if #symbols == 0 then
+      symbols = nil
     end
 
-    cfg_symbols.o.symbols.filter = sel
-    cfg_symbols.o.outline_window.width = 25
-    cfg_symbols.setup(vim.tbl_deep_extend('force', {}, cfg_symbols.defaults, cfg_symbols.o or {}))
+    cfg_outline.o.symbols.filter = symbols
+    cfg_outline.o.outline_window.width = 25 -- hard code is bad!
+    cfg_outline.setup(vim.tbl_deep_extend('force', {}, cfg_outline.defaults, cfg_outline.o or {}))
 
     if sidebar.view:is_open() and sidebar:has_code_win() then
       sidebar:close()
@@ -60,8 +74,8 @@ function M.select_symbols(cfg_symbols, sidebar)
     sidebar:open()
   end
 
-  if p then
-    p(cfg_symbols, contents)
+  if picker then
+    picker(cfg_outline, contents)
   end
 end
 

@@ -95,6 +95,10 @@
 ---@field focus_outline? boolean  Whether to focus on outline of after some operation. If nil, defaults to true
 ---@field split_command? string
 
+---@class outline.OutlineOpenWith
+---@field mode string
+---@field float boolean?
+
 ---@class outline.BreadcrumbOpts
 ---@field depth? number
 ---@field sep? string

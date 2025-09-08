@@ -290,6 +290,11 @@ function LivePreview:update(node)
 end
 
 function LivePreview:focus()
+  if not self.win then
+    Preview:show()
+    return
+  end
+
   vim.api.nvim_set_current_win(self.win)
   -- Remove this when the autocmd for WinEnter works above
   utils.win_set_option(self.win, 'cursorline', self.initial_cursorline)

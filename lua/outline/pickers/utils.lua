@@ -2,6 +2,7 @@ local M = {}
 
 M.all_kind = 'All'
 
+---@return boolean
 function M.is_blank(s)
   return (
     s == nil
@@ -35,11 +36,14 @@ function M.pad_string(s, length)
   return string.format('%s%' .. (length - #string_s) .. 's', string_s, ' ')
 end
 
+---@param str string
 local rstrip_whitespace = function(str)
   str = string.gsub(str, '%s+$', '')
   return str
 end
 
+---@param str string
+---@param limit integer|nil
 local function lstrip_whitespace(str, limit)
   if limit ~= nil then
     local num_found = 0

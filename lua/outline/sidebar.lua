@@ -155,6 +155,10 @@ function Sidebar:setup_keymaps()
     fold_all = { '_set_all_folded', { true } },
     unfold_all = { '_set_all_folded', { false } },
     fold_reset = { '_set_all_folded', {} },
+    open_in_vsplit = { '_open_with', { { mode = 'vsplit' } } },
+    open_in_split = { '_open_with', { { mode = 'split' } } },
+    open_in_tab = { '_open_with', { { mode = 'tabnew %' } } },
+    open_in_float = { '_open_with', { { float = true } } },
     filter_symbols = { '_filter_kind_symbols', {} },
     rename_symbol = {
       providers.action, { self, 'rename_symbol', { self } }
@@ -286,6 +290,10 @@ function Sidebar:update_cursor_pos(current)
 
   local col = 0
 
+  if not self.code.win or not self.view.win then
+    return
+  end
+
   local buf = vim.api.nvim_win_get_buf(self.code.win)
   if cfg.o.outline_items.show_symbol_lineno then
     -- Padding area between lineno column and start of guides
@@ -388,6 +396,10 @@ end
 ---Currently hovered node in outline
 ---@return outline.FlatSymbol|nil
 function Sidebar:_current_node()
+  if not self.view.win then
+    return
+  end
+
   local current_line = vim.api.nvim_win_get_cursor(self.view.win)[1]
   if self.flats then
     return self.flats[current_line]
@@ -631,6 +643,62 @@ function Sidebar:open(opts)
       self:focus()
     end
   end
+end
+
+---@param opts outline.OutlineOpenWith
+function Sidebar:_open_with(opts)
+  if not opts then
+    return
+  end
+
+  if not self.provider then
+    return
+  end
+
+  local node = self:_current_node()
+  if not node then
+    return
+  end
+
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    vim.notify('outline.nvim: Code window closed', vim.log.levels.WARN)
+    return
+  end
+
+  if opts.float then
+    if not self.preview.s then
+      self.preview.s = self
+    end
+
+    if not self.code.win then
+      self.code.win = vim.api.nvim_get_current_win()
+    end
+
+    self.preview:toggle()
+    self.preview:focus()
+    return
+  end
+
+  vim.api.nvim_set_current_win(self.code.win)
+
+  vim.cmd(opts.mode)
+  vim.cmd('wincmd =')
+
+  local cur_win = 0 -- set new current win id
+
+  vim.fn.win_execute(cur_win, "normal! m'")
+  vim.api.nvim_win_set_cursor(cur_win, { node.line + 1, node.character })
+
+  if cfg.o.outline_window.center_on_jump then
+    vim.fn.win_execute(self.code.win, 'normal! zz')
+  end
+
+  utils.flash_highlight(
+    cur_win,
+    node.line + 1,
+    cfg.o.outline_window.jump_highlight_duration,
+    'OutlineJumpHighlight'
+  )
 end
 
 function Sidebar:_filter_kind_symbols()
