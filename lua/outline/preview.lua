@@ -301,11 +301,14 @@ function LivePreview:show()
     return
   end
 
-  if
-    not vim.api.nvim_win_is_valid(self.s.code.win)
-    or (self.codewin and not vim.api.nvim_win_is_valid(self.codewin))
-    or not self.s.provider
-  then
+  if self.codewin and not vim.api.nvim_win_is_valid(self.codewin) then
+    local cur_win = vim.api.nvim_get_current_win()
+    if cur_win ~= self.s.code.win then
+      self.codewin = cur_win
+    end
+  end
+
+  if not vim.api.nvim_win_is_valid(self.s.code.win) or not self.s.provider then
     return
   end
 
