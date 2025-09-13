@@ -144,12 +144,12 @@ return function(opts, contents)
 
         if vim.tbl_isempty(selections) then
           local sel = action_state.get_selected_entry()
-          if sel.ordinal ~= Util.all_kind then
+          if Util.strip_whitespace(sel.ordinal) ~= Util.all_kind then
             table.insert(filters, sel.ordinal)
           end
         else
           for _, sel in pairs(selections) do
-            if sel.ordinal ~= Util.all_kind then
+            if Util.strip_whitespace(sel.ordinal) ~= Util.all_kind then
               table.insert(filters, sel.ordinal)
             end
           end

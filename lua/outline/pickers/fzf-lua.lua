@@ -74,7 +74,7 @@ return function(opts, contents)
         local symbols = {}
 
         if #selected == 1 then
-          local sel = selected[1]
+          local sel = Util.strip_whitespace(selected[1])
           if sel ~= Util.all_kind then
             local str_e = fzf.utils.strip_ansi_coloring(sel)
             local symbol_name = str_e:match('[a-zA-Z].*$')
@@ -85,6 +85,7 @@ return function(opts, contents)
         else
           for _, sel in ipairs(selected) do
             local str_e = fzf.utils.strip_ansi_coloring(sel)
+            str_e = Util.strip_whitespace(str_e)
             local symbol_name = str_e:match('[a-zA-Z].*$')
             if symbol_name then
               table.insert(symbols, symbol_name)
