@@ -302,7 +302,7 @@ end
 
 ---Create, focus, or update preview
 function LivePreview:show()
-  if not self.s:has_focus() or #vim.api.nvim_list_wins() < 2 then
+  if (self.s and not self.s:has_focus()) or #vim.api.nvim_list_wins() < 2 then
     return
   end
 
