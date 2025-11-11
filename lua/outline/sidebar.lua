@@ -445,6 +445,7 @@ function Sidebar:__goto_location(change_focus)
 
   if change_focus then
     vim.fn.win_gotoid(self.code.win)
+    self._auto_open_line_folded(self, node)
   end
 end
 
@@ -705,6 +706,7 @@ function Sidebar:_open_with(opts)
     cfg.o.outline_window.jump_highlight_duration,
     'OutlineJumpHighlight'
   )
+  self._auto_open_line_folded(self, node)
 end
 
 function Sidebar:_filter_kind_symbols()
@@ -763,6 +765,20 @@ end
 function Sidebar:has_focus()
   local winid = vim.fn.win_getid()
   return self.view:is_open() and winid == self.view.win
+end
+
+---@param node? outline.FlatSymbol[]
+function Sidebar:_auto_open_line_folded(node)
+  node = node or self:_current_node()
+  if not node then
+    return
+  end
+  vim.schedule(function()
+    local fold_start = vim.fn.foldclosed(node.line + 1)
+    if fold_start ~= -1 then
+      vim.cmd('silent! foldopen!')
+    end
+  end)
 end
 
 ---Whether there is currently an available provider.
@@ -853,6 +869,9 @@ end
 ---@param find_node? outline.FlatSymbol|outline.Symbol Find a given node rather than node matching cursor position in codewin
 ---@return outline.FlatSymbol|nil set_cursor_to_this_node
 function Sidebar:build_outline(find_node)
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    return
+  end
   ---@type integer 0-indexed
   local hovered_line = vim.api.nvim_win_get_cursor(self.code.win)[1] - 1
   ---@type outline.FlatSymbol Deepest visible matching node to set cursor
