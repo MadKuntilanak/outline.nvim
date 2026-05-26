@@ -63,15 +63,13 @@ function M.select_symbols(cfg_outline, sidebar)
     cfg_outline.setup(vim.tbl_deep_extend('force', {}, cfg_outline.defaults, cfg_outline.o or {}))
 
     if sidebar.view:is_open() and sidebar:has_code_win() then
-      sidebar:close()
+      sidebar:refresh_setup()
     end
 
     -- wait some time to avoid buffer-name conflict
     vim.wait(1500, function()
       return sidebar.view:is_open()
     end)
-
-    sidebar:open()
   end
 
   if picker then
