@@ -3,6 +3,7 @@ local Preview = require('outline.preview')
 local View = require('outline.view')
 local cfg = require('outline.config')
 local folding = require('outline.folding')
+local loading = require('outline.loading')
 local parser = require('outline.parser')
 local providers = require('outline.providers.init')
 local symbols = require('outline.symbols')
@@ -336,14 +337,28 @@ function Sidebar:refresh_handler(response)
     return
   end
 
+  if vim.tbl_isempty(response) then
+    loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+    return
+  end
+  loading.set_loading(self.view.buf, false, false)
+
   local curbuf = vim.api.nvim_get_current_buf()
   if curbuf == self.view.buf then
     return
   end
 
+  local items = parser.parse(response, curbuf)
+
+  if vim.tbl_isempty(items) then
+    local filter_text = utils.render_filter_text(cfg)
+    loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+    return
+  end
+  loading.set_loading(self.view.buf, false, false)
+
   local newbuf = self:refresh_setup()
 
-  local items = parser.parse(response, curbuf)
   self:_merge_items(items)
 
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
