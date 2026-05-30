@@ -90,14 +90,22 @@ function M.request_symbols(callback, opts)
 
     if stars_node and name_node then
       local sr, sc, er, ec = stars_node:range()
-      local stars_text = vim.api.nvim_buf_get_text(0, sr, sc, er, ec, {})[1] or ''
+      local ok, result = pcall(vim.api.nvim_buf_get_text, 0, sr, sc, er, ec, {})
+      if not ok then
+        goto next_tag
+      end
+      local stars_text = result[1] or ''
       local level = #(stars_text:match('^%*+') or '')
       if level == 0 then
         level = 1
       end
 
       local row1, col1, row2, col2 = name_node:range()
-      local title = vim.api.nvim_buf_get_text(0, row1, col1, row2, col2, {})[1] or ''
+      local ok2, result2 = pcall(vim.api.nvim_buf_get_text, 0, row1, col1, row2, col2, {})
+      if not ok2 then
+        goto next_tag
+      end
+      local title = result2[1] or ''
       title = title:gsub('^%s+', ''):gsub('%s+$', '')
       title = title:gsub('^%u+%s+', '') -- strip TODO keywords
       title = title:gsub('%s*:[%w_@#%%:]+:%s*$', '') -- strip :tags:
@@ -126,6 +134,8 @@ function M.request_symbols(callback, opts)
         children = {},
       })
     end
+
+    ::next_tag::
   end
 
   for i, h in ipairs(headings) do

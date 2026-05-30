@@ -81,7 +81,11 @@ function M.request_symbols(callback, opts)
     local level = (cap == 'h1') and 1 or 2
 
     local row1, col1, row2, col2 = node:range()
-    local title = vim.api.nvim_buf_get_text(0, row1, col1, row2, col2, {})[1] or ''
+    local ok, result = pcall(vim.api.nvim_buf_get_text, 0, row1, col1, row2, col2, {})
+    if not ok then
+      goto next_section
+    end
+    local title = result[1] or ''
     title = title:gsub('^%s+', ''):gsub('%s+$', '')
     if title == '' then
       title = '(untitled)'
@@ -110,6 +114,8 @@ function M.request_symbols(callback, opts)
       },
       children = {},
     })
+
+    ::next_section::
   end
 
   ---@diagnostic disable-next-line: missing-parameter
@@ -118,7 +124,11 @@ function M.request_symbols(callback, opts)
     local line = vim.api.nvim_buf_get_lines(0, row1, row1 + 1, false)[1] or ''
 
     if line:match('%b()') then
-      local tag_text = vim.api.nvim_buf_get_text(0, row1, col1, row2, col2, {})[1] or ''
+      local ok2, result2 = pcall(vim.api.nvim_buf_get_text, 0, row1, col1, row2, col2, {})
+      if not ok2 then
+        goto next_tag
+      end
+      local tag_text = result2[1] or ''
       tag_text = tag_text:gsub('^%s+', ''):gsub('%s+$', '')
 
       if tag_text ~= '' then
@@ -139,6 +149,7 @@ function M.request_symbols(callback, opts)
         })
       end
     end
+    ::next_tag::
   end
 
   table.sort(headings, function(a, b)
