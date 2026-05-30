@@ -229,6 +229,14 @@ function Sidebar:setup_buffer_autocmd()
         self:reset_cursor_style()
       end,
     })
+
+    vim.api.nvim_create_autocmd('BufDelete', {
+      callback = function(ev)
+        if self._symbols_cache then
+          self._symbols_cache[ev.buf] = nil
+        end
+      end,
+    })
   end
 end
 
@@ -372,9 +380,36 @@ function Sidebar:refresh_handler(response)
     return
   end
 
+  -- Cache the previous buffer's symbols before updating code.buf
+  self._symbols_cache = self._symbols_cache or {}
+  if self.code.buf ~= 0 and not vim.tbl_isempty(self.items or {}) then
+    self._symbols_cache[self.code.buf] = vim.deepcopy(self.items)
+  end
+
   self.code.buf = curbuf
 
   if vim.tbl_isempty(response) then
+    -- If a cache exists for this buffer, display it while waiting for the LSP
+    if self._symbols_cache[curbuf] then
+      loading.set_loading(self.view.buf, false, false)
+      local newbuf = self:refresh_setup()
+      self.items = self._symbols_cache[curbuf]
+      local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
+      self:_update_lines(update_cursor)
+
+      -- Keep retrying in the background to fetch the latest symbols updates.
+      vim.defer_fn(function()
+        if self.view:is_open() and self.provider then
+          self.provider.request_symbols(function(res)
+            if self.view:is_open() and vim.api.nvim_get_current_buf() == curbuf then
+              self:refresh_handler(res)
+            end
+          end, nil, self.provider_info)
+        end
+      end, 500)
+      return
+    end
+
     self:_handle_empty_response(function()
       if self.view:is_open() and self.provider then
         self.provider.request_symbols(function(res)
@@ -401,8 +436,15 @@ function Sidebar:refresh_handler(response)
   end
 
   loading.set_loading(self.view.buf, false, false)
+
+  self._symbols_cache = self._symbols_cache or {}
+  self._symbols_cache[curbuf] = nil
+
   local newbuf = self:refresh_setup()
   self:_merge_items(items)
+
+  self._symbols_cache[curbuf] = vim.deepcopy(self.items)
+
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
   self:_update_lines(update_cursor)
 end
@@ -445,7 +487,7 @@ function Sidebar:__refresh()
     vim.schedule_wrap(function()
       _refresh_timer = nil
 
-      -- Re-check setelah debounce
+      -- Re-check again after debounce
       local cur = vim.api.nvim_get_current_buf()
       if cur == self.code.buf or cur == self.view.buf then
         return
