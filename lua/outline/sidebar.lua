@@ -234,8 +234,7 @@ end
 
 ---Setup autocmds for the code buffer that the outline attached to
 function Sidebar:setup_attached_buffer_autocmd()
-  -- local code_win, code_buf = self.code.win, self.code.buf
-  local code_buf = self.code.buf -- buf masih perlu untuk `buffer =`
+  local code_buf = self.code.buf
   local events = cfg.o.outline_items.auto_update_events
 
   if cfg.o.outline_items.highlight_hovered_item or cfg.o.symbol_folding.auto_unfold_hover then
@@ -245,7 +244,6 @@ function Sidebar:setup_attached_buffer_autocmd()
         group = self.augroup,
         buffer = code_buf,
         callback = function()
-          -- self:_highlight_current_item(code_win, cfg.o.outline_items.auto_set_cursor)
           self:_highlight_current_item(self.code.win, cfg.o.outline_items.auto_set_cursor)
         end,
       })
@@ -336,10 +334,15 @@ end
 ---@param on_give_up function
 function Sidebar:_handle_empty_response(on_retry, on_give_up)
   self._retry_count = (self._retry_count or 0) + 1
+  local retry_for_buf = self.code.buf
+
   if self._retry_count <= 5 then
     loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
     vim.defer_fn(function()
       if self.view:is_open() then
+        if vim.api.nvim_get_current_buf() ~= retry_for_buf then
+          return
+        end
         on_retry()
       end
     end, 500)
@@ -364,9 +367,22 @@ function Sidebar:refresh_handler(response)
     return
   end
 
+  local curbuf = vim.api.nvim_get_current_buf()
+  if curbuf == self.view.buf then
+    return
+  end
+
+  self.code.buf = curbuf
+
   if vim.tbl_isempty(response) then
     self:_handle_empty_response(function()
-      self:_refresh()
+      if self.view:is_open() and self.provider then
+        self.provider.request_symbols(function(res)
+          if self.view:is_open() then
+            self:refresh_handler(res)
+          end
+        end, nil, self.provider_info)
+      end
     end, function()
       local filter_text = utils.render_filter_text(cfg)
       loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
@@ -376,11 +392,6 @@ function Sidebar:refresh_handler(response)
 
   self._retry_count = 0
   loading.set_loading(self.view.buf, false, false)
-
-  local curbuf = vim.api.nvim_get_current_buf()
-  if curbuf == self.view.buf then
-    return
-  end
 
   local items = parser.parse(response, curbuf)
   if vim.tbl_isempty(items) then
@@ -401,6 +412,8 @@ function Sidebar:_merge_items(items)
   parser.merge_items_rec({ children = items }, { children = self.items })
 end
 
+local _refresh_timer = nil
+
 ---Re-request symbols from provider
 function Sidebar:__refresh()
   local buf = vim.api.nvim_get_current_buf()
@@ -414,18 +427,43 @@ function Sidebar:__refresh()
     return
   end
 
-  self.provider, self.provider_info = providers.find_provider()
-  if self.provider then
-    self.provider.request_symbols(function(res)
-      if self.view:is_open() then
-        self:refresh_handler(res)
-      end
-    end, nil, self.provider_info)
+  if buf == self.code.buf then
     return
   end
-  -- No provider
-  self:refresh_setup()
-  self:no_providers_ui()
+
+  -- Debounce: wait 150ms
+  if _refresh_timer then
+    _refresh_timer:stop()
+    _refresh_timer:close()
+    _refresh_timer = nil
+  end
+
+  _refresh_timer = vim.loop.new_timer()
+  _refresh_timer:start(
+    150,
+    0,
+    vim.schedule_wrap(function()
+      _refresh_timer = nil
+
+      -- Re-check setelah debounce
+      local cur = vim.api.nvim_get_current_buf()
+      if cur == self.code.buf or cur == self.view.buf then
+        return
+      end
+
+      self.provider, self.provider_info = providers.find_provider()
+      if self.provider then
+        self.provider.request_symbols(function(res)
+          if self.view:is_open() then
+            self:refresh_handler(res)
+          end
+        end, nil, self.provider_info)
+        return
+      end
+      self:refresh_setup()
+      self:no_providers_ui()
+    end)
+  )
 end
 
 -- stylua: ignore start
