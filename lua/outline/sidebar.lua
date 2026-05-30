@@ -234,7 +234,8 @@ end
 
 ---Setup autocmds for the code buffer that the outline attached to
 function Sidebar:setup_attached_buffer_autocmd()
-  local code_win, code_buf = self.code.win, self.code.buf
+  -- local code_win, code_buf = self.code.win, self.code.buf
+  local code_buf = self.code.buf -- buf masih perlu untuk `buffer =`
   local events = cfg.o.outline_items.auto_update_events
 
   if cfg.o.outline_items.highlight_hovered_item or cfg.o.symbol_folding.auto_unfold_hover then
@@ -244,7 +245,8 @@ function Sidebar:setup_attached_buffer_autocmd()
         group = self.augroup,
         buffer = code_buf,
         callback = function()
-          self:_highlight_current_item(code_win, cfg.o.outline_items.auto_set_cursor)
+          -- self:_highlight_current_item(code_win, cfg.o.outline_items.auto_set_cursor)
+          self:_highlight_current_item(self.code.win, cfg.o.outline_items.auto_set_cursor)
         end,
       })
     end
@@ -379,9 +381,10 @@ function Sidebar:__refresh()
   end
   local ft = utils.buf_get_option(buf, 'ft')
   local listed = utils.buf_get_option(buf, 'buflisted')
-  if ft == 'OutlineHelp' or not (listed or ft == 'help') then
+  if ft == 'OutlineHelp' or not (listed or ft == 'help' or ft == 'org') then
     return
   end
+
   self.provider, self.provider_info = providers.find_provider()
   if self.provider then
     self.provider.request_symbols(function(res)

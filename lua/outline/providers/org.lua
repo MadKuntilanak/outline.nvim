@@ -31,10 +31,8 @@ local function rec_remove_field(node, field)
   end
 end
 
--- Map heading level to LSP SymbolKind
-local function level_to_kind(level)
-  local kinds = { 2, 5, 12, 13, 15, 15 }
-  return kinds[level] or 15
+local function level_to_kind(_level)
+  return 15
 end
 
 ---@param callback fun(symbols?:outline.ProviderSymbol[], opts?:table)
@@ -55,7 +53,6 @@ function M.request_symbols(callback, opts)
     return
   end
 
-  -- Query: grab stars + item dari setiap headline
   local query_str = [[
     (section
       headline: (headline
@@ -71,7 +68,7 @@ function M.request_symbols(callback, opts)
     query = vim.treesitter.query.parse_query('org', query_str)
   end
 
-  -- Kumpulkan semua heading dulu secara ordered
+  local buf_line_count = vim.api.nvim_buf_line_count(0)
   local headings = {}
 
   ---@diagnostic disable-next-line: missing-parameter
@@ -81,15 +78,17 @@ function M.request_symbols(callback, opts)
 
     for id, node in pairs(match) do
       local cap = query.captures[id]
+      -- Neovim >= 0.10: iter_matches returns { [id] = {node, ...} }
+      -- Neovim < 0.10:  iter_matches returns { [id] = node }
+      local actual_node = type(node) == 'table' and node[1] or node
       if cap == 'stars' then
-        stars_node = node
+        stars_node = actual_node
       elseif cap == 'name' then
-        name_node = node
+        name_node = actual_node
       end
     end
 
     if stars_node and name_node then
-      -- Level = panjang string stars ("*" = 1, "**" = 2, dst)
       local sr, sc, er, ec = stars_node:range()
       local stars_text = vim.api.nvim_buf_get_text(0, sr, sc, er, ec, {})[1] or ''
       local level = #(stars_text:match('^%*+') or '')
@@ -97,7 +96,6 @@ function M.request_symbols(callback, opts)
         level = 1
       end
 
-      -- Title dari item node
       local row1, col1, row2, col2 = name_node:range()
       local title = vim.api.nvim_buf_get_text(0, row1, col1, row2, col2, {})[1] or ''
       title = title:gsub('^%s+', ''):gsub('%s+$', '')
@@ -107,36 +105,44 @@ function M.request_symbols(callback, opts)
         title = '(untitled)'
       end
 
-      -- Range pakai section node (parent of headline, parent of item)
       local headline_node = name_node:parent()
       local section_node = headline_node and headline_node:parent()
       local range_node = section_node or headline_node
-      local rr1, rc1, rr2, rc2 = range_node:range()
+      local rr1, rc1 = range_node:range()
 
       table.insert(headings, {
         kind = level_to_kind(level),
         name = title,
         level = level,
+        line_num = row1,
         selectionRange = {
           start = { character = col1, line = row1 },
           ['end'] = { character = col2, line = row2 },
         },
         range = {
           start = { character = rc1, line = rr1 },
-          ['end'] = { character = rc2, line = math.max(rr1, rr2 - 1) },
+          ['end'] = { character = 0, line = rr1 },
         },
         children = {},
       })
     end
   end
 
-  -- Build tree berdasarkan level (karena org AST flat, section tidak nested)
-  -- Stack menyimpan { level, node } — pop sampai ketemu parent yang levelnya lebih kecil
+  for i, h in ipairs(headings) do
+    local end_line = buf_line_count - 1
+    for j = i + 1, #headings do
+      if headings[j].level <= h.level then
+        end_line = headings[j].line_num - 1
+        break
+      end
+    end
+    h.range['end'].line = end_line
+  end
+
   local result = { children = {} }
   local stack = { { level = 0, node = result } }
 
   for _, heading in ipairs(headings) do
-    -- Pop stack sampai top.level < heading.level
     while #stack > 1 and stack[#stack].level >= heading.level do
       table.remove(stack, #stack)
     end
@@ -147,6 +153,7 @@ function M.request_symbols(callback, opts)
   end
 
   rec_remove_field(result, 'level')
+  rec_remove_field(result, 'line_num')
 
   callback(result.children, opts)
 end

@@ -105,7 +105,7 @@ M.defaults = {
   },
   picker = 'default', -- "default, fzf-lua"
   providers = {
-    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man', 'org' },
+    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man', 'org', 'help' },
     lsp = {
       blacklist_clients = {},
     },
@@ -114,6 +114,9 @@ M.defaults = {
     },
     org = {
       filetypes = { 'org' },
+    },
+    help = {
+      filetypes = { 'help' },
     },
   },
   symbols = {

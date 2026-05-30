@@ -152,9 +152,11 @@
 ---@field icons? table<outline.AllKinds, { icon?: string, hl?: string }>
 
 ---@class outline.SetupOpts.Providers
----@field priority? ('lsp'|'coc'|'markdown'|'norg'|'man')[]
+---@field priority? ('lsp'|'coc'|'markdown'|'norg'|'man'|'org'|'help')[]
 ---@field lsp? { blacklist_clients?: string[] }
 ---@field markdown? { filetypes?: string[] }
+---@field org? { filetypes?: string[] }
+---@field help? { filetypes?: string[] }
 
 ---@class outline.SetupOpts.Keymaps
 ---@field close? nil|string[]|string
