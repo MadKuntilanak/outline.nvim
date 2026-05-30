@@ -105,12 +105,15 @@ M.defaults = {
   },
   picker = 'default', -- "default, fzf-lua"
   providers = {
-    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man' },
+    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man', 'org' },
     lsp = {
       blacklist_clients = {},
     },
     markdown = {
       filetypes = { 'markdown' },
+    },
+    org = {
+      filetypes = { 'org' },
     },
   },
   symbols = {
@@ -222,7 +225,7 @@ end
 function M.should_include_symbol(kind, bufnr)
   local ft = utils.buf_get_option(bufnr, 'ft')
   -- There can only be one kind in markdown and norg as of now
-  if ft == 'markdown' or ft == 'norg' or kind == nil then
+  if ft == 'markdown' or ft == 'norg' or ft == 'org' or kind == nil then
     return true
   end
 
