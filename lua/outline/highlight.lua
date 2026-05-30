@@ -29,17 +29,43 @@ end
 ---@param nodes outline.FlatSymbol[]
 function M.hovers(bufnr, nodes)
   for line, node in ipairs(nodes) do
-    if node.hovered then
-      -- stylua: ignore start
+    local hl_group
+    if node.hovered and not node.hovered_ancestor then
+      hl_group = 'OutlineCurrent'
+    elseif node.hovered or node.hovered_ancestor then
+      hl_group = 'OutlineCurrentParent'
+    end
+
+    if hl_group then
       if _G._outline_nvim_has[11] then
-        vim.hl.range(bufnr, M.ns.hover, 'OutlineCurrent', { line - 1, node.prefix_length }, { line - 1, -1 })
-      else
-        ---@diagnostic disable-next-line:deprecated
-        vim.api.nvim_buf_add_highlight(
-          bufnr, M.ns.hover, 'OutlineCurrent', line - 1, node.prefix_length, -1
+        vim.hl.range(
+          bufnr,
+          M.ns.hover,
+          hl_group,
+          { line - 1, node.prefix_length },
+          { line - 1, -1 }
         )
+      else
+        if _G._outline_nvim_has[11] then
+          vim.hl.range(
+            bufnr,
+            M.ns.hover,
+            hl_group,
+            { line - 1, node.prefix_length },
+            { line - 1, -1 }
+          )
+        else
+          ---@diagnostic disable-next-line:deprecated
+          vim.api.nvim_buf_add_highlight(
+            bufnr,
+            M.ns.hover,
+            hl_group,
+            line - 1,
+            node.prefix_length,
+            -1
+          )
+        end
       end
-      -- stylua: ignore end
     end
   end
 end
@@ -127,6 +153,17 @@ function M.setup()
       fg = string_hl.fg,
       ctermbg = cline_hl.ctermbg,
       ctermfg = string_hl.ctermfg,
+    })
+  end
+
+  if vim.fn.hlexists('OutlineCurrentParent') == 0 then
+    local cline_hl = get_hl_by_name('Error')
+    local comment_hl = get_hl_by_name('Comment')
+    vim.api.nvim_set_hl(0, 'OutlineCurrentParent', {
+      bg = cline_hl.bg,
+      fg = comment_hl.fg,
+      ctermbg = cline_hl.ctermbg,
+      ctermfg = comment_hl.ctermfg,
     })
   end
 

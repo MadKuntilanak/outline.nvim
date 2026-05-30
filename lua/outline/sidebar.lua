@@ -332,32 +332,49 @@ function Sidebar:refresh_setup()
   return newbuf
 end
 
----Handler for provider request_symbols for refreshing outline
+---@param on_retry function
+---@param on_give_up function
+function Sidebar:_handle_empty_response(on_retry, on_give_up)
+  self._retry_count = (self._retry_count or 0) + 1
+  if self._retry_count <= 5 then
+    loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+    vim.defer_fn(function()
+      if self.view:is_open() then
+        on_retry()
+      end
+    end, 500)
+  else
+    self._retry_count = 0
+    on_give_up()
+  end
+end
+
 ---@param response outline.ProviderSymbol[]
-function Sidebar:refresh_handler(response)
+function Sidebar:_handle_invalid_response(response)
   if response == nil or type(response) ~= 'table' then
     utils.echo('No response from provider when requesting symbols!')
+    return false
+  end
+  return true
+end
+
+---@param response outline.ProviderSymbol[]
+function Sidebar:refresh_handler(response)
+  if not self:_handle_invalid_response(response) then
     return
   end
 
   if vim.tbl_isempty(response) then
-    self._retry_count = (self._retry_count or 0) + 1
-    if self._retry_count <= 5 then
-      loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
-      vim.defer_fn(function()
-        if self.view:is_open() then
-          self:_refresh()
-        end
-      end, 500)
-    else
-      self._retry_count = 0
+    self:_handle_empty_response(function()
+      self:_refresh()
+    end, function()
       local filter_text = utils.render_filter_text(cfg)
       loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
-    end
+    end)
     return
   end
 
-  self._retry_count = 0 -- reset
+  self._retry_count = 0
   loading.set_loading(self.view.buf, false, false)
 
   local curbuf = vim.api.nvim_get_current_buf()
@@ -366,17 +383,15 @@ function Sidebar:refresh_handler(response)
   end
 
   local items = parser.parse(response, curbuf)
-
   if vim.tbl_isempty(items) then
     local filter_text = utils.render_filter_text(cfg)
     loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
     return
   end
-  loading.set_loading(self.view.buf, false, false)
 
+  loading.set_loading(self.view.buf, false, false)
   local newbuf = self:refresh_setup()
   self:_merge_items(items)
-
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
   self:_update_lines(update_cursor)
 end
@@ -662,7 +677,7 @@ function Sidebar:open(opts)
   end
 
   if not self.view:is_open() then
-    -- Clean up a ghost outline buffer before opening a new one
+    -- Cleanup ghost buffer
     local target_name = 'Outline'
     local tab = vim.api.nvim_get_current_tabpage()
     local outline_name = (target_name .. '_'):upper() .. tostring(tab)
@@ -674,16 +689,20 @@ function Sidebar:open(opts)
 
     self.preview.s = self
     self.provider, self.provider_info = providers.find_provider()
+
+    -- Open window first
+    self:initial_setup(opts)
+    loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+
     if self.provider then
-      self.provider.request_symbols(function(...)
-        self:initial_handler(...)
+      self.provider.request_symbols(function(response)
+        self:initial_populate(response, opts)
       end, opts, self.provider_info)
-      return
     else
-      -- No provider
-      self:initial_setup(opts)
+      loading.set_loading(self.view.buf, false, false)
       self:no_providers_ui()
     end
+
     if not cfg.o.outline_window.focus_on_open or not opts.focus_outline then
       vim.fn.win_gotoid(self.code.win)
     end
@@ -749,6 +768,38 @@ function Sidebar:_open_with(opts)
     'OutlineJumpHighlight'
   )
   self._auto_open_line_folded(self, node)
+end
+
+---@param response outline.ProviderSymbol[]
+function Sidebar:initial_populate(response, opts)
+  loading.set_loading(self.view.buf, false, false)
+  if not self:_handle_invalid_response(response) then
+    return
+  end
+  if not opts then
+    opts = {}
+  end
+
+  if vim.tbl_isempty(response) then
+    self:_handle_empty_response(function()
+      if self.provider then
+        self.provider.request_symbols(function(res)
+          self:initial_populate(res, opts)
+        end, opts, self.provider_info)
+      end
+    end, function()
+      loading.set_loading(self.view.buf, true, false, 'No symbols found')
+    end)
+    return
+  end
+
+  self._retry_count = 0
+  local items = parser.parse(response, self.code.buf)
+  self.items = items
+  self:_update_lines(true)
+  if not cfg.o.outline_window.focus_on_open or not opts.focus_outline then
+    vim.fn.win_gotoid(self.code.win)
+  end
 end
 
 function Sidebar:_filter_kind_symbols()
@@ -916,6 +967,59 @@ function Sidebar:build_outline(find_node)
   end
   ---@type integer 0-indexed
   local hovered_line = vim.api.nvim_win_get_cursor(self.code.win)[1] - 1
+
+  -- Pre-pass: reset and mark hovered ancestors in the tree before iteration
+  local function reset_and_mark(items)
+    for _, item in ipairs(items) do
+      item.hovered_ancestor = false
+      if item.children then
+        reset_and_mark(item.children)
+      end
+    end
+  end
+
+  local function mark_ancestors(items)
+    for _, item in ipairs(items) do
+      local function has_hovered_descendant(node)
+        if
+          node.line == hovered_line
+          or (
+            node.range_start
+            and node.range_end
+            and hovered_line >= node.range_start
+            and hovered_line <= node.range_end
+          )
+        then
+          return true
+        end
+        if node.children then
+          for _, child in ipairs(node.children) do
+            if has_hovered_descendant(child) then
+              return true
+            end
+          end
+        end
+        return false
+      end
+
+      -- Cek children langsung, tanpa guard
+      if item.children then
+        for _, child in ipairs(item.children) do
+          if has_hovered_descendant(child) then
+            item.hovered_ancestor = true
+            break
+          end
+        end
+        mark_ancestors(item.children)
+      end
+    end
+  end
+
+  reset_and_mark(self.items)
+  mark_ancestors(self.items)
+
+  self.hovered = {} -- reset first
+
   ---@type outline.FlatSymbol Deepest visible matching node to set cursor
   local put_cursor
   self.flats = {}
@@ -944,20 +1048,22 @@ function Sidebar:build_outline(find_node)
   end
 
   -- Closures for convenience
-  -- stylua: ignore start
   local function save_guide_hl(from, to)
     table.insert(hl, {
-      line = line_count, name = 'OutlineGuides',
-      from = from, to = to,
+      line = line_count,
+      name = 'OutlineGuides',
+      from = from,
+      to = to,
     })
   end
   local function save_fold_hl(from, to)
     table.insert(hl, {
-      line = line_count, name = 'OutlineFoldMarker',
-      from = from, to = to,
+      line = line_count,
+      name = 'OutlineFoldMarker',
+      from = from,
+      to = to,
     })
   end
-  -- stylua: ignore end
 
   local guide_markers = cfg.o.guides.markers
   local fold_markers = cfg.o.symbol_folding.markers
@@ -980,6 +1086,11 @@ function Sidebar:build_outline(find_node)
         put_cursor = node
       end
     end
+
+    if node.hovered_ancestor and not node.hovered then
+      table.insert(self.hovered, node)
+    end
+
     if find_node and find_node == node then
       ---@diagnostic disable-next-line: cast-local-type
       put_cursor = find_node

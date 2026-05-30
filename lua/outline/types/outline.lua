@@ -47,6 +47,7 @@
 ---@field character integer
 ---@field range_start integer
 ---@field range_end integer
+---@field hovered_ancestor boolean
 ---@field isLast boolean
 ---@field hierarchy boolean
 ---@field children? outline.Symbol[]
