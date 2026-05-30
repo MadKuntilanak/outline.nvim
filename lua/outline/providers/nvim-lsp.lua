@@ -102,7 +102,7 @@ function M.request_symbols(on_symbols, opts, info)
   local method = 'textDocument/documentSymbol'
   local callback = function(err, response)
     if err or not response then
-      on_symbols(response, opts)
+      on_symbols({}, opts)
     else
       response = postprocess_symbols(response)
       on_symbols(response, opts)

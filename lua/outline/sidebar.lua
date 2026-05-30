@@ -1,7 +1,9 @@
+local Picker = require('outline.pickers')
 local Preview = require('outline.preview')
 local View = require('outline.view')
 local cfg = require('outline.config')
 local folding = require('outline.folding')
+local loading = require('outline.loading')
 local parser = require('outline.parser')
 local providers = require('outline.providers.init')
 local symbols = require('outline.symbols')
@@ -154,6 +156,11 @@ function Sidebar:setup_keymaps()
     fold_all = { '_set_all_folded', { true } },
     unfold_all = { '_set_all_folded', { false } },
     fold_reset = { '_set_all_folded', {} },
+    open_in_vsplit = { '_open_with', { { mode = 'vsplit' } } },
+    open_in_split = { '_open_with', { { mode = 'split' } } },
+    open_in_tab = { '_open_with', { { mode = 'tabnew %' } } },
+    open_in_float = { '_open_with', { { float = true } } },
+    filter_symbols = { '_filter_kind_symbols', {} },
     rename_symbol = {
       providers.action, { self, 'rename_symbol', { self } }
     },
@@ -227,7 +234,8 @@ end
 
 ---Setup autocmds for the code buffer that the outline attached to
 function Sidebar:setup_attached_buffer_autocmd()
-  local code_win, code_buf = self.code.win, self.code.buf
+  -- local code_win, code_buf = self.code.win, self.code.buf
+  local code_buf = self.code.buf -- buf masih perlu untuk `buffer =`
   local events = cfg.o.outline_items.auto_update_events
 
   if cfg.o.outline_items.highlight_hovered_item or cfg.o.symbol_folding.auto_unfold_hover then
@@ -237,7 +245,8 @@ function Sidebar:setup_attached_buffer_autocmd()
         group = self.augroup,
         buffer = code_buf,
         callback = function()
-          self:_highlight_current_item(code_win, cfg.o.outline_items.auto_set_cursor)
+          -- self:_highlight_current_item(code_win, cfg.o.outline_items.auto_set_cursor)
+          self:_highlight_current_item(self.code.win, cfg.o.outline_items.auto_set_cursor)
         end,
       })
     end
@@ -284,6 +293,10 @@ function Sidebar:update_cursor_pos(current)
 
   local col = 0
 
+  if not self.code.win or not self.view.win then
+    return
+  end
+
   local buf = vim.api.nvim_win_get_buf(self.code.win)
   if cfg.o.outline_items.show_symbol_lineno then
     -- Padding area between lineno column and start of guides
@@ -313,6 +326,7 @@ function Sidebar:refresh_setup()
 
   self.code.win = curwin
   self.code.buf = curbuf
+  self._retry_count = 0
 
   self:setup_attached_buffer_autocmd()
   return newbuf
@@ -326,14 +340,41 @@ function Sidebar:refresh_handler(response)
     return
   end
 
+  if vim.tbl_isempty(response) then
+    self._retry_count = (self._retry_count or 0) + 1
+    if self._retry_count <= 5 then
+      loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+      vim.defer_fn(function()
+        if self.view:is_open() then
+          self:_refresh()
+        end
+      end, 500)
+    else
+      self._retry_count = 0
+      local filter_text = utils.render_filter_text(cfg)
+      loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+    end
+    return
+  end
+
+  self._retry_count = 0 -- reset
+  loading.set_loading(self.view.buf, false, false)
+
   local curbuf = vim.api.nvim_get_current_buf()
   if curbuf == self.view.buf then
     return
   end
 
-  local newbuf = self:refresh_setup()
-
   local items = parser.parse(response, curbuf)
+
+  if vim.tbl_isempty(items) then
+    local filter_text = utils.render_filter_text(cfg)
+    loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+    return
+  end
+  loading.set_loading(self.view.buf, false, false)
+
+  local newbuf = self:refresh_setup()
   self:_merge_items(items)
 
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
@@ -354,9 +395,10 @@ function Sidebar:__refresh()
   end
   local ft = utils.buf_get_option(buf, 'ft')
   local listed = utils.buf_get_option(buf, 'buflisted')
-  if ft == 'OutlineHelp' or not (listed or ft == 'help') then
+  if ft == 'OutlineHelp' or not (listed or ft == 'help' or ft == 'org') then
     return
   end
+
   self.provider, self.provider_info = providers.find_provider()
   if self.provider then
     self.provider.request_symbols(function(res)
@@ -386,6 +428,10 @@ end
 ---Currently hovered node in outline
 ---@return outline.FlatSymbol|nil
 function Sidebar:_current_node()
+  if not self.view.win then
+    return
+  end
+
   local current_line = vim.api.nvim_win_get_cursor(self.view.win)[1]
   if self.flats then
     return self.flats[current_line]
@@ -403,7 +449,13 @@ function Sidebar:__goto_location(change_focus)
   end
 
   if not vim.api.nvim_win_is_valid(self.code.win) then
-    vim.notify('outline.nvim: Code window closed', vim.log.levels.WARN)
+    local msg_notify = 'outline.nvim: Code window closed'
+
+    if node then
+      msg_notify = 'outline.nvim: Waiting for symbols...'
+    end
+
+    vim.notify(msg_notify, vim.log.levels.WARN)
     return
   end
 
@@ -425,6 +477,7 @@ function Sidebar:__goto_location(change_focus)
 
   if change_focus then
     vim.fn.win_gotoid(self.code.win)
+    self._auto_open_line_folded(self, node)
   end
 end
 
@@ -609,6 +662,16 @@ function Sidebar:open(opts)
   end
 
   if not self.view:is_open() then
+    -- Clean up a ghost outline buffer before opening a new one
+    local target_name = 'Outline'
+    local tab = vim.api.nvim_get_current_tabpage()
+    local outline_name = (target_name .. '_'):upper() .. tostring(tab)
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_get_name(buf):match(outline_name) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+      end
+    end
+
     self.preview.s = self
     self.provider, self.provider_info = providers.find_provider()
     if self.provider then
@@ -629,6 +692,67 @@ function Sidebar:open(opts)
       self:focus()
     end
   end
+end
+
+---@param opts outline.OutlineOpenWith
+function Sidebar:_open_with(opts)
+  if not opts then
+    return
+  end
+
+  if not self.provider then
+    return
+  end
+
+  local node = self:_current_node()
+  if not node then
+    return
+  end
+
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    vim.notify('outline.nvim: Code window closed', vim.log.levels.WARN)
+    return
+  end
+
+  if opts.float then
+    if not self.preview.s then
+      self.preview.s = self
+    end
+
+    if not self.code.win then
+      self.code.win = vim.api.nvim_get_current_win()
+    end
+
+    self.preview:toggle()
+    self.preview:focus()
+    return
+  end
+
+  vim.api.nvim_set_current_win(self.code.win)
+
+  vim.cmd(opts.mode)
+  vim.cmd('wincmd =')
+
+  local cur_win = 0 -- set new current win id
+
+  vim.fn.win_execute(cur_win, "normal! m'")
+  vim.api.nvim_win_set_cursor(cur_win, { node.line + 1, node.character })
+
+  if cfg.o.outline_window.center_on_jump then
+    vim.fn.win_execute(self.code.win, 'normal! zz')
+  end
+
+  utils.flash_highlight(
+    cur_win,
+    node.line + 1,
+    cfg.o.outline_window.jump_highlight_duration,
+    'OutlineJumpHighlight'
+  )
+  self._auto_open_line_folded(self, node)
+end
+
+function Sidebar:_filter_kind_symbols()
+  Picker.select_symbols(cfg, self)
 end
 
 ---@see outline.close_outline
@@ -683,6 +807,20 @@ end
 function Sidebar:has_focus()
   local winid = vim.fn.win_getid()
   return self.view:is_open() and winid == self.view.win
+end
+
+---@param node? outline.FlatSymbol[]
+function Sidebar:_auto_open_line_folded(node)
+  node = node or self:_current_node()
+  if not node then
+    return
+  end
+  vim.schedule(function()
+    local fold_start = vim.fn.foldclosed(node.line + 1)
+    if fold_start ~= -1 then
+      vim.cmd('silent! foldopen!')
+    end
+  end)
 end
 
 ---Whether there is currently an available provider.
@@ -773,6 +911,9 @@ end
 ---@param find_node? outline.FlatSymbol|outline.Symbol Find a given node rather than node matching cursor position in codewin
 ---@return outline.FlatSymbol|nil set_cursor_to_this_node
 function Sidebar:build_outline(find_node)
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    return
+  end
   ---@type integer 0-indexed
   local hovered_line = vim.api.nvim_win_get_cursor(self.code.win)[1] - 1
   ---@type outline.FlatSymbol Deepest visible matching node to set cursor

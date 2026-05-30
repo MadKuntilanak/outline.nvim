@@ -133,7 +133,7 @@ Note that a call to `.setup()` is **required** for this plugin to work
 [simrat39/symbols-outline.nvim#213](https://github.com/simrat39/symbols-outline.nvim/issues/213)).
 
 ```lua
-require("outline").setup({})
+require('outline').setup({})
 ```
 
 [Skip to commands](#commands)
@@ -378,10 +378,17 @@ Pass a table to the setup call with your configuration options.
     -- j/k/<down>/<up>.
     down_and_jump = '<C-j>',
     up_and_jump = '<C-k>',
+
+    open_in_vsplit = '<C-v>',
+    open_in_split = '<C-s>',
+    open_in_tab = '<C-t>',
+    open_in_float = 'O',
+
+    filter_symbols = 'F',
   },
 
   providers = {
-    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man' },
+    priority = { 'lsp', 'coc', 'markdown', 'norg', 'man', 'org', 'help' },
     -- Configuration for each provider (3rd party providers are supported)
     lsp = {
       -- Lsp client names to ignore
@@ -390,6 +397,12 @@ Pass a table to the setup call with your configuration options.
     markdown = {
       -- List of supported ft's to use the markdown provider
       filetypes = {'markdown'},
+    },
+    org = {
+      filetypes = {'org'},
+    },
+    help = {
+      filetypes = {'help'},
     },
   },
 
@@ -473,7 +486,7 @@ To find out exactly what some of the options do, please see the
 
 Include all symbols except kinds String and Variable:
 ```lua
-symbols.filter = { 'String', 'Variable', exclude=true }
+symbols.filter = { 'String', 'Variable', exclude = true }
 ```
 
 Include only Function symbols:
@@ -486,7 +499,7 @@ Per-filetype filtering example:
 - For other file types, include all but string
 ```lua
 symbols.filter = {
-  default = { 'String', exclude=true },
+  default = { 'String', exclude = true },
   python = { 'Function', 'Class' },
 }
 ```
@@ -794,7 +807,7 @@ how long the highlight is applied for.
 Outline.nvim provides the following public API for use in lua.
 
 ```lua
-require'outline'
+require('outline')
 ```
 - setup(opts)
 
@@ -918,7 +931,7 @@ require'outline'
 symbols = {
   icon_fetcher = function(k)
     if k == 'Package' then
-      return ""
+      return ''
     end
     return false
   end,
@@ -1114,7 +1127,9 @@ that simply returns in plain text, the first letter of the given kind.
 
 ```lua
 symbols = {
-  icon_fetcher = function(kind, bufnr, symbol) return kind:sub(1,1) end,
+  icon_fetcher = function(kind, bufnr, symbol)
+    return kind:sub(1, 1)
+  end,
 }
 ```
 
@@ -1141,7 +1156,9 @@ Disable all icons:
 
 ```lua
 symbols = {
-  icon_fetcher = function() return "" end,
+  icon_fetcher = function()
+    return ''
+  end,
 }
 ```
 
@@ -1151,7 +1168,7 @@ Disable icons for specific kinds, and for others use lspkind:
 symbols = {
   icon_fetcher = function(k, buf)
     if k == 'String' then
-      return ""
+      return ''
     end
     return false
   end,
@@ -1170,13 +1187,13 @@ other filetypes.
 symbols = {
   icon_fetcher = function(k, buf)
     -- Use nvim_buf_get_option(buf, 'ft') for nvim 0.7 users
-    local ft = vim.api.nvim_get_option_value("ft", { buf = buf })
+    local ft = vim.api.nvim_get_option_value('ft', { buf = buf })
     if ft == 'markdown' then
-      return ""
+      return ''
     end
     return false
   end,
-  icon_source = "lspkind",
+  icon_source = 'lspkind',
 }
 ```
 

@@ -173,4 +173,48 @@ function M.win_set_option(winnr, name, value)
   end
 end
 
+function M.render_centered_text(bufnr, text)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  if type(text) == 'string' then
+    text = { text }
+  end
+  local winid
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_get_buf(win) == bufnr then
+      winid = win
+      break
+    end
+  end
+  local height = 40
+  local width = 30
+  if winid then
+    height = vim.api.nvim_win_get_height(winid)
+    width = vim.api.nvim_win_get_width(winid)
+  end
+  local lines = {}
+  for _ = 1, (height / 2) - (#text / 2) do
+    table.insert(lines, '')
+  end
+  for _, line in ipairs(text) do
+    line = string.rep(' ', (width - vim.api.nvim_strwidth(line)) / 2) .. line
+    table.insert(lines, line)
+  end
+  vim.bo[bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].modifiable = false
+end
+
+function M.render_filter_text(cfg)
+  local filter_text = ''
+  for i, _ in pairs(cfg.o.symbols.filter.default) do
+    if cfg.o.symbols.filter.default[i] == true then
+      filter_text = i .. ' '
+    end
+  end
+  -- return table.concat(filter_text, ' ')
+  return filter_text
+end
+
 return M

@@ -95,6 +95,10 @@
 ---@field focus_outline? boolean  Whether to focus on outline of after some operation. If nil, defaults to true
 ---@field split_command? string
 
+---@class outline.OutlineOpenWith
+---@field mode string
+---@field float boolean?
+
 ---@class outline.BreadcrumbOpts
 ---@field depth? number
 ---@field sep? string
@@ -148,9 +152,11 @@
 ---@field icons? table<outline.AllKinds, { icon?: string, hl?: string }>
 
 ---@class outline.SetupOpts.Providers
----@field priority? ('lsp'|'coc'|'markdown'|'norg'|'man')[]
+---@field priority? ('lsp'|'coc'|'markdown'|'norg'|'man'|'org'|'help')[]
 ---@field lsp? { blacklist_clients?: string[] }
 ---@field markdown? { filetypes?: string[] }
+---@field org? { filetypes?: string[] }
+---@field help? { filetypes?: string[] }
 
 ---@class outline.SetupOpts.Keymaps
 ---@field close? nil|string[]|string
