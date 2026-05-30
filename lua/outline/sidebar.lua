@@ -370,13 +370,31 @@ function Sidebar:_handle_invalid_response(response)
 end
 
 ---@param response outline.ProviderSymbol[]
-function Sidebar:refresh_handler(response)
+---@param request_buf? integer The buffer that was active when the request was dispatched.
+---                            When provided, stale responses (user already moved away) are dropped.
+function Sidebar:refresh_handler(response, request_buf)
   if not self:_handle_invalid_response(response) then
     return
   end
 
   local curbuf = vim.api.nvim_get_current_buf()
   if curbuf == self.view.buf then
+    return
+  end
+
+  -- Drop stale response: the user has already moved to a different buffer
+  -- before the LSP replied. Without this guard, symbols from buffer B would
+  -- be shown while the user is already on buffer A.
+  if request_buf and curbuf ~= request_buf then
+    -- Still cache the symbols for request_buf so they appear instantly if the
+    -- user navigates back to it.
+    if not vim.tbl_isempty(response) then
+      self._symbols_cache = self._symbols_cache or {}
+      local items = parser.parse(response, request_buf)
+      if not vim.tbl_isempty(items) then
+        self._symbols_cache[request_buf] = items
+      end
+    end
     return
   end
 
@@ -398,11 +416,12 @@ function Sidebar:refresh_handler(response)
       self:_update_lines(update_cursor)
 
       -- Keep retrying in the background to fetch the latest symbols updates.
+      local retry_buf = curbuf
       vim.defer_fn(function()
         if self.view:is_open() and self.provider then
           self.provider.request_symbols(function(res)
-            if self.view:is_open() and vim.api.nvim_get_current_buf() == curbuf then
-              self:refresh_handler(res)
+            if self.view:is_open() and vim.api.nvim_get_current_buf() == retry_buf then
+              self:refresh_handler(res, retry_buf)
             end
           end, nil, self.provider_info)
         end
@@ -410,11 +429,12 @@ function Sidebar:refresh_handler(response)
       return
     end
 
+    local empty_retry_buf = curbuf
     self:_handle_empty_response(function()
       if self.view:is_open() and self.provider then
         self.provider.request_symbols(function(res)
           if self.view:is_open() then
-            self:refresh_handler(res)
+            self:refresh_handler(res, empty_retry_buf)
           end
         end, nil, self.provider_info)
       end
@@ -495,9 +515,13 @@ function Sidebar:__refresh()
 
       self.provider, self.provider_info = providers.find_provider()
       if self.provider then
+        -- Capture which buffer this request was made for.
+        -- refresh_handler must reject responses that arrive after the user has
+        -- already moved to a different buffer (stale async response).
+        local request_buf = cur
         self.provider.request_symbols(function(res)
           if self.view:is_open() then
-            self:refresh_handler(res)
+            self:refresh_handler(res, request_buf)
           end
         end, nil, self.provider_info)
         return
