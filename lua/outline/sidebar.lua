@@ -326,6 +326,7 @@ function Sidebar:refresh_setup()
 
   self.code.win = curwin
   self.code.buf = curbuf
+  self._retry_count = 0
 
   self:setup_attached_buffer_autocmd()
   return newbuf
@@ -340,9 +341,23 @@ function Sidebar:refresh_handler(response)
   end
 
   if vim.tbl_isempty(response) then
-    loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+    self._retry_count = (self._retry_count or 0) + 1
+    if self._retry_count <= 5 then
+      loading.set_loading(self.view.buf, true, true, 'Waiting for symbols ')
+      vim.defer_fn(function()
+        if self.view:is_open() then
+          self:_refresh()
+        end
+      end, 500)
+    else
+      self._retry_count = 0
+      local filter_text = utils.render_filter_text(cfg)
+      loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+    end
     return
   end
+
+  self._retry_count = 0 -- reset
   loading.set_loading(self.view.buf, false, false)
 
   local curbuf = vim.api.nvim_get_current_buf()
@@ -360,7 +375,6 @@ function Sidebar:refresh_handler(response)
   loading.set_loading(self.view.buf, false, false)
 
   local newbuf = self:refresh_setup()
-
   self:_merge_items(items)
 
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
@@ -648,6 +662,16 @@ function Sidebar:open(opts)
   end
 
   if not self.view:is_open() then
+    -- Clean up a ghost outline buffer before opening a new one
+    local target_name = 'Outline'
+    local tab = vim.api.nvim_get_current_tabpage()
+    local outline_name = (target_name .. '_'):upper() .. tostring(tab)
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if vim.api.nvim_buf_get_name(buf):match(outline_name) then
+        pcall(vim.api.nvim_buf_delete, buf, { force = true })
+      end
+    end
+
     self.preview.s = self
     self.provider, self.provider_info = providers.find_provider()
     if self.provider then
