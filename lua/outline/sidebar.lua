@@ -150,6 +150,7 @@ function Sidebar:setup_keymaps()
     down_and_jump = { '_move_and_jump', { 'down' } },
     up_and_jump = { '_move_and_jump', { 'up' } },
     fold_toggle = { '_toggle_fold', {} },
+    save_to_qf = { "_save_to_qf", {} },
     fold = { '_set_folded', { true } },
     unfold = { '_set_folded', { false } },
     fold_toggle_all = { '_toggle_all_fold', {} },
@@ -161,6 +162,11 @@ function Sidebar:setup_keymaps()
     open_in_tab = { '_open_with', { { mode = 'tabnew %' } } },
     open_in_float = { '_open_with', { { float = true } } },
     filter_symbols = { '_filter_kind_symbols', {} },
+    freeze = { '_freeze', {} },
+    refresh = { '_refresh', {true} },
+    unfreeze = { '_thaw', {} },
+    toggle_freeze = { '_toggle_freeze', {} },
+    reference_symbol = { '_show_references', {} },
     rename_symbol = {
       providers.action, { self, 'rename_symbol', { self } }
     },
@@ -256,6 +262,21 @@ function Sidebar:setup_attached_buffer_autocmd()
         end,
       })
     end
+  end
+
+  -- Trigger a symbol re-request whenever the buffer changes (save, leaving
+  -- insert mode, etc.) so the outline stays in sync with the latest symbols.
+  if utils.str_or_nonempty_table(events.items) then
+    if not self.augroup then
+      self.augroup = vim.api.nvim_create_augroup('outline_' .. self.id, { clear = true })
+    end
+    vim.api.nvim_create_autocmd(events.items, {
+      group = self.augroup,
+      buffer = code_buf,
+      callback = function()
+        self:__refresh_current()
+      end,
+    })
   end
 end
 
@@ -476,21 +497,67 @@ end
 
 local _refresh_timer = nil
 
+---Re-request symbols for the currently attached buffer (same buf, symbols changed).
+---Unlike __refresh(), this does NOT bail out when buf == self.code.buf.
+function Sidebar:__refresh_current()
+  if self._frozen then
+    return
+  end
+  if not self.view:is_open() or not self.provider then
+    return
+  end
+  local request_buf = self.code.buf
+  self.provider.request_symbols(function(res)
+    if self.view:is_open() then
+      self:refresh_handler(res, request_buf)
+    end
+  end, nil, self.provider_info)
+end
+
 ---Re-request symbols from provider
-function Sidebar:__refresh()
+---@param force? boolean
+function Sidebar:__refresh(force)
+  force = force or false
+
+  -- When frozen, ignore all buffer-switch refresh requests.
+  if not force and self._frozen then
+    return
+  end
+
   local buf = vim.api.nvim_get_current_buf()
   local focused_outline = self.view.buf == buf
-  if focused_outline or not self.view:is_open() then
+  if (not force and focused_outline) or (not force and not self.view:is_open()) then
     return
   end
   local ft = utils.buf_get_option(buf, 'ft')
   local listed = utils.buf_get_option(buf, 'buflisted')
-  if ft == 'OutlineHelp' or not (listed or ft == 'help' or ft == 'org') then
+  if
+    (not force and ft == 'OutlineHelp')
+    or (not force and not (listed or ft == 'help' or ft == 'org'))
+  then
     return
   end
 
-  if buf == self.code.buf then
+  if not force and (buf == self.code.buf) then
     return
+  end
+
+  if force then
+    self:_toggle_freeze()
+    vim.cmd('wincmd p')
+
+    -- unplan: need this to get rid children of references?
+    -- local node = self:_current_node()
+    -- if not node then
+    --   utils.echo('No symbol under cursor.')
+    --   return
+    -- end
+    -- if node._ref_shown then
+    --   node._ref_shown = nil
+    --   node.children = node._ref_orig_children
+    --   node._ref_orig_children = nil
+    --   self:_update_lines(false)
+    -- end
   end
 
   -- Debounce: wait 150ms
@@ -501,6 +568,10 @@ function Sidebar:__refresh()
   end
 
   _refresh_timer = vim.loop.new_timer()
+  if not _refresh_timer then
+    return
+  end
+
   _refresh_timer:start(
     150,
     0,
@@ -533,9 +604,10 @@ function Sidebar:__refresh()
 end
 
 -- stylua: ignore start
--- TODO: Is this still needed?
-function Sidebar:_refresh()
-  (utils.debounce(function() self:__refresh() end, 100))()
+---@param force? boolean
+function Sidebar:_refresh(force)
+  force = force or false
+  (utils.debounce(function() self:__refresh(force) end, 100))()
 end
 -- stylua: ignore end
 
@@ -569,12 +641,47 @@ function Sidebar:__goto_location(change_focus)
 
   if not vim.api.nvim_win_is_valid(self.code.win) then
     local msg_notify = 'outline.nvim: Code window closed'
-
     if node then
       msg_notify = 'outline.nvim: Waiting for symbols...'
     end
-
     vim.notify(msg_notify, vim.log.levels.WARN)
+    return
+  end
+
+  -- Reference node pointing to a different file (e.g. from OutlineReferences).
+  -- Strategy: open the file in code.win, freeze the outline so it keeps showing
+  -- the original buffer's symbols, push the original position to the jumplist
+  -- so <C-o> brings the user back seamlessly.
+  if node._is_ref and node._ref_file then
+    -- Push current position to jumplist before navigating away.
+    vim.fn.win_execute(self.code.win, "normal! m'")
+
+    -- Freeze outline on current buffer before switching files.
+    if not self._frozen then
+      self:_freeze()
+    end
+
+    -- Open the reference file in the code window (like :edit).
+    vim.api.nvim_win_call(self.code.win, function()
+      vim.cmd('edit ' .. vim.fn.fnameescape(node._ref_file))
+    end)
+
+    vim.api.nvim_win_set_cursor(self.code.win, { node.line + 1, node.character })
+
+    if cfg.o.outline_window.center_on_jump then
+      vim.fn.win_execute(self.code.win, 'normal! zz')
+    end
+
+    utils.flash_highlight(
+      self.code.win,
+      node.line + 1,
+      cfg.o.outline_window.jump_highlight_duration,
+      'OutlineJumpHighlight'
+    )
+
+    if change_focus then
+      vim.fn.win_gotoid(self.code.win)
+    end
     return
   end
 
@@ -931,11 +1038,52 @@ end
 ---@see outline.focus_code
 ---@return boolean ok
 function Sidebar:focus_code()
-  if self:has_code_win() then
-    vim.fn.win_gotoid(self.code.win)
-    return true
+  -- If the outline is frozen, restore exactly the buffer + cursor position
+  -- that was saved at freeze time, regardless of where the user has navigated
+  -- since. This is more reliable than <C-o> which depends on jumplist state.
+  if self._frozen and self._freeze_snapshot then
+    local snap = self._freeze_snapshot
+    self:_thaw()
+
+    -- Restore the exact buffer + cursor from the freeze snapshot.
+    -- Three cases:
+    --   1. Buffer still loaded and valid -> set it directly.
+    --   2. Buffer valid but unloaded (bufloaded=false) -> re-open via filename.
+    --   3. Buffer wiped/deleted -> re-open via filename.
+    local target_buf = snap.buf
+
+    local fname
+    if vim.api.nvim_buf_is_valid(target_buf) then
+      fname = vim.api.nvim_buf_get_name(target_buf)
+    end
+    if not fname or fname == '' then
+      fname = snap.filename
+    end
+
+    if fname and fname ~= '' then
+      if not self:has_code_win() then
+        self.code.win = vim.api.nvim_get_current_win()
+      end
+      vim.api.nvim_win_call(self.code.win, function()
+        vim.cmd('edit ' .. vim.fn.fnameescape(fname))
+      end)
+      target_buf = vim.api.nvim_win_get_buf(self.code.win)
+    end
+
+    if vim.api.nvim_buf_is_valid(target_buf) then
+      vim.api.nvim_win_set_buf(self.code.win, target_buf)
+      -- Cursor row must be within the buffer's line count after restore.
+      local line_count = vim.api.nvim_buf_line_count(target_buf)
+      local row = math.min(snap.cursor[1], line_count)
+      vim.api.nvim_win_set_cursor(self.code.win, { row, snap.cursor[2] })
+      if cfg.o.outline_window.center_on_jump then
+        vim.fn.win_execute(self.code.win, 'normal! zz')
+      end
+    end
   end
-  return false
+
+  vim.fn.win_gotoid(self.code.win)
+  return true
 end
 
 ---@see outline.focus_toggle
@@ -1169,7 +1317,7 @@ function Sidebar:build_outline(find_node)
     })
   end
 
-  local guide_markers = cfg.o.guides.markers
+  local guide_markers = cfg.o.guides.markers and cfg.o.guides.markers or {}
   local fold_markers = cfg.o.symbol_folding.markers
 
   for node in parser.preorder_iter(self.items) do
@@ -1254,16 +1402,19 @@ function Sidebar:build_outline(find_node)
 
     local line = lineno_prefix .. pref_str
     local icon_pref = 0
-    if node.icon ~= '' then
-      line = line .. ' ' .. node.icon
+    local node_icon = node.icon or ''
+    if node_icon ~= '' then
+      line = line .. ' ' .. node_icon
       icon_pref = 1
     end
     line = line .. ' ' .. node.name
 
     -- Start from left of icon col
     local hl_start = #pref_str + #lineno_prefix + icon_pref
-    local hl_end = hl_start + #node.icon -- until after icon
-    local hl_type = cfg.o.symbols.icons[symbols.kinds[node.kind]].hl
+    local hl_end = hl_start + #node_icon -- until after icon
+    local kind_entry = symbols.kinds[node.kind]
+    local icon_entry = kind_entry and cfg.o.symbols.icons[kind_entry]
+    local hl_type = icon_entry and icon_entry.hl or 'Normal'
     -- stylua: ignore start
     table.insert(hl, {
       line = line_count, name = hl_type,
@@ -1303,5 +1454,426 @@ function Sidebar:build_outline(find_node)
 
   return put_cursor
 end
+
+-- ┏╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┓
+-- ╏                           FREEZE / REFERENCES                               ╏
+-- ┗╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┛
+
+local function _freeze_indicator_update(float_win, parent_win, anchor, row_offset)
+  if not float_win or not vim.api.nvim_win_is_valid(float_win) then
+    return
+  end
+
+  if not parent_win or not vim.api.nvim_win_is_valid(parent_win) then
+    return
+  end
+
+  local col = (anchor == 'SE' or anchor == 'NE') and vim.api.nvim_win_get_width(parent_win) or 0
+  local row = (anchor == 'SE' or anchor == 'SW')
+      and vim.api.nvim_win_get_height(parent_win) - row_offset
+    or row_offset
+
+  vim.api.nvim_win_set_config(float_win, {
+    relative = 'win',
+    win = parent_win,
+    anchor = anchor,
+    row = row,
+    col = col,
+  })
+end
+
+---Freeze the outline: stop following/watching buffer changes.
+function Sidebar:_freeze_indicator_open()
+  -- Close any existing indicator first.
+  self:_freeze_indicator_close()
+  self._freeze_indicator_autocmds = {}
+
+  if not self.view:is_open() or not vim.api.nvim_win_is_valid(self.view.win) then
+    return
+  end
+
+  local icon = cfg.o.frozen_indicator and cfg.o.frozen_indicator.icon or ' ' -- \uf0ca nf icon, fallback ''
+  icon = icon .. vim.api.nvim_buf_get_name(self.code.buf):match('([^/\\]+)$')
+    or tostring(self.code.buf)
+
+  local sepBack = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.sep)
+      and cfg.o.frozen_indicator.sep.back
+    or ''
+  local sepFront = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.sep)
+      and cfg.o.frozen_indicator.sep.front
+    or ''
+
+  -- Determine corner: opposite side to outline position so it doesn't
+  -- overlap the tree text. User can override via cfg.o.frozen_indicator.anchor.
+  local outline_pos = (cfg.o.outline_window and cfg.o.outline_window.position) or 'left'
+  local default_anchor = outline_pos == 'left' and 'SE' or 'SW'
+  local anchor = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.anchor) or default_anchor
+  if anchor == 'SW' or anchor == 'SE' then
+    if anchor == 'SW' then
+      sepBack = '█'
+      sepFront = sepFront
+    else
+      sepBack = sepBack
+      sepFront = '█'
+    end
+  else
+    if anchor == 'NE' then
+      sepBack = sepBack
+      sepFront = '█'
+    else
+      sepBack = '█'
+      sepFront = sepFront
+    end
+  end
+  local text = sepBack .. icon .. sepFront
+
+  local col = (anchor == 'SE' or anchor == 'NE') and vim.api.nvim_win_get_width(self.view.win) or 0
+  local row_offset = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.row_offset) or 0
+  local row = (anchor == 'SE' or anchor == 'SW')
+      and vim.api.nvim_win_get_height(self.view.win) - row_offset
+    or row_offset
+  local width = vim.fn.strdisplaywidth(text)
+  local height = 1
+
+  local hl_bg_group = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.hl_bg.group)
+    or 'WarningMsg'
+  local hl_bg_attr = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.hl_bg.attr) or 'bg'
+
+  local hl_fg_group = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.hl_fg.group)
+    or 'WarningMsg'
+  local hl_fg_attr = (cfg.o.frozen_indicator and cfg.o.frozen_indicator.hl_fg.attr) or 'bg'
+
+  local get_hl = function(group)
+    return vim.api.nvim_get_hl(0, { name = group })
+  end
+
+  local fg = get_hl(hl_fg_group)[hl_fg_attr]
+  local bg = get_hl(hl_bg_group)[hl_bg_attr]
+  local hl_bg = bg
+  local hl_fg = fg
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, { text })
+
+  local ns = vim.api.nvim_create_namespace('freeze_indicator')
+
+  vim.api.nvim_set_hl(0, 'OutlineFrozen', {
+    fg = hl_fg,
+    bg = hl_bg,
+    bold = true,
+  })
+
+  vim.api.nvim_set_hl(0, 'OutlineFrozenSep', {
+    fg = hl_bg,
+  })
+
+  local segments = {
+    { text = sepBack, hl = 'OutlineFrozenSep' },
+    { text = icon, hl = 'OutlineFrozen' },
+    { text = sepFront, hl = 'OutlineFrozenSep' },
+  }
+
+  local current_byte = 0
+  for _, segment in ipairs(segments) do
+    local byte_len = #segment.text
+
+    vim.api.nvim_buf_set_extmark(buf, ns, 0, current_byte, {
+      end_row = 0,
+      end_col = current_byte + byte_len,
+      hl_group = segment.hl,
+    })
+
+    current_byte = current_byte + byte_len
+  end
+
+  vim.api.nvim_set_option_value('modifiable', false, { buf = buf })
+  vim.api.nvim_set_option_value('bufhidden', 'wipe', { buf = buf })
+
+  local win = vim.api.nvim_open_win(buf, false, {
+    relative = 'win',
+    win = self.view.win,
+    anchor = anchor,
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    style = 'minimal',
+    focusable = false,
+    zindex = 50,
+  })
+
+  local winhl = (cfg.o.frozen_indicator and #cfg.o.frozen_indicator.winhl > 0)
+      and cfg.o.frozen_indicator.winhl
+    or 'Normal:Normal,' .. 'FloatBorder:Normal,'
+  vim.api.nvim_set_option_value('winhighlight', winhl, { win = win, scope = 'local' })
+
+  self._freeze_indicator_win = win
+  self._freeze_indicator_buf = buf
+
+  local aucmd_1 = vim.api.nvim_create_autocmd('WinResized', {
+    callback = function()
+      if not self.view.win then
+        self:_freeze_indicator_close()
+        return
+      end
+      _freeze_indicator_update(win, self.view.win, anchor, row_offset)
+    end,
+  })
+
+  local autcmd_2 = vim.api.nvim_create_autocmd('VimResized', {
+    callback = function()
+      if not self.view.win then
+        self:_freeze_indicator_close()
+        return
+      end
+      _freeze_indicator_update(win, self.view.win, anchor, row_offset)
+    end,
+  })
+
+  self._freeze_indicator_autocmds = { autcmd_2, aucmd_1 }
+end
+
+---Close the freeze indicator popup if open.
+function Sidebar:_freeze_indicator_close()
+  if self._freeze_indicator_win and vim.api.nvim_win_is_valid(self._freeze_indicator_win) then
+    pcall(vim.api.nvim_win_close, self._freeze_indicator_win, true)
+  end
+
+  if self._freeze_indicator_autocmds then
+    for _, id in ipairs(self._freeze_indicator_autocmds) do
+      pcall(vim.api.nvim_del_autocmd, id)
+    end
+  end
+
+  self._freeze_indicator_autocmds = nil
+  self._freeze_indicator_win = nil
+  self._freeze_indicator_buf = nil
+end
+
+function Sidebar:_freeze()
+  self._frozen = true
+  -- Snapshot the exact buffer + cursor position at freeze time.
+  -- focus_code() uses this to restore precisely here, regardless of
+  -- where the user navigates to after jumping to a reference.
+  self._freeze_snapshot = {
+    buf = self.code.buf,
+    -- Store filename as fallback: if the buffer is deleted/wiped after freeze,
+    -- focus_code() can still re-open the file from disk.
+    filename = vim.api.nvim_buf_get_name(self.code.buf),
+    cursor = vim.api.nvim_win_is_valid(self.code.win) and vim.api.nvim_win_get_cursor(
+      self.code.win
+    ) or { 1, 0 },
+  }
+  -- Detach the follow-cursor augroup so cursor movement in other buffers
+  -- no longer highlights or refreshes the outline.
+  if self.augroup then
+    pcall(vim.api.nvim_del_augroup_by_id, self.augroup)
+    self.augroup = nil
+  end
+  -- Cancel any pending debounce refresh timer.
+  if _refresh_timer then
+    _refresh_timer:stop()
+    _refresh_timer:close()
+    _refresh_timer = nil
+  end
+  local name = vim.api.nvim_buf_get_name(self.code.buf):match('([^/\\]+)$')
+    or tostring(self.code.buf)
+  utils.echo('Outline frozen on: ' .. name)
+  self:_freeze_indicator_open()
+end
+
+---Thaw a frozen outline: resume normal follow/watch behaviour.
+function Sidebar:_thaw()
+  self._frozen = false
+  self._freeze_snapshot = nil
+  self:_freeze_indicator_close()
+  -- Re-attach follow-cursor autocmds for the current code buffer.
+  self:setup_attached_buffer_autocmd()
+  -- Immediately refresh to pick up wherever the user currently is.
+  self:__refresh()
+  utils.echo('Outline unfrozen.')
+end
+
+---Toggle freeze state.
+---@return boolean frozen Whether the outline is now frozen.
+function Sidebar:_toggle_freeze()
+  if self._frozen then
+    self:_thaw()
+    return false
+  else
+    self:_freeze()
+    return true
+  end
+end
+
+---Show LSP references of the symbol under cursor as child nodes in the outline.
+---Each reference appears as `filename:line` under the symbol in the hierarchy.
+---Calling again on the same symbol toggles them off.
+function Sidebar:_show_references()
+  if not self.view:is_open() then
+    utils.echo('Outline is not open.')
+    return
+  end
+  if not self.provider then
+    utils.echo('No provider attached.')
+    return
+  end
+
+  local node = self:_current_node()
+  if not node then
+    utils.echo('No symbol under cursor.')
+    return
+  end
+
+  -- Toggle off: restore original children.
+  if node._ref_shown then
+    node._ref_shown = nil
+    node.children = node._ref_orig_children
+    node._ref_orig_children = nil
+    self:_update_lines(false)
+    return
+  end
+
+  -- node.line/character = selection start (0-based) for LSP position params.
+  -- node.range_start/range_end = plain line numbers (not tables).
+  local params = {
+    textDocument = { uri = vim.uri_from_bufnr(self.code.buf) },
+    position = {
+      line = node.line,
+      character = node.character,
+    },
+    context = { includeDeclaration = false },
+  }
+
+  utils.echo('Fetching references…')
+
+  vim.lsp.buf_request(self.code.buf, 'textDocument/references', params, function(err, result)
+    if err or not result or #result == 0 then
+      utils.echo('No references found.')
+      return
+    end
+
+    local ref_children = {}
+    for _, loc in ipairs(result) do
+      local fname = vim.uri_to_fname(loc.uri)
+      local short = fname:match('([^/\\]+)$') or fname
+      local lnum = loc.range.start.line + 1 -- 1-based for display label
+
+      local ref_depth = (node.depth or 1) + 1
+      -- hierarchy: array of isLast booleans for each ancestor level,
+      -- used by build_outline to draw tree guide prefix chars.
+      local ref_hir = {}
+      for i, v in ipairs(node.hierarchy or {}) do
+        ref_hir[i] = v
+      end
+      table.insert(ref_hir, (#result == #ref_children + 1)) -- isLast for parent level
+
+      ref_children[#ref_children + 1] = {
+        -- required by parser iterator (parser.lua:117)
+        _i = 1,
+        -- required by build_outline for tree guides
+        isLast = false, -- patched below after loop
+        hierarchy = ref_hir,
+        depth = ref_depth,
+        parent = node,
+        -- symbol fields
+        name = short .. ':' .. lnum,
+        kind = node.kind,
+        -- icon = symbols.icon_from_kind(node.kind, self.code.buf) or "󰌹 "
+        icon = '󰌹 ',
+        detail = nil,
+        deprecated = false,
+        -- match parser.lua convention: plain line numbers
+        line = loc.range.start.line,
+        character = loc.range.start.character,
+        range_start = loc.range.start.line,
+        range_end = loc.range['end'].line,
+        -- jump logic: open this file instead of code.buf
+        _is_ref = true,
+        _ref_file = fname,
+        children = {},
+      }
+    end
+
+    -- Fix isLast flag: last sibling needs isLast=true for correct tree guides.
+    if #ref_children > 0 then
+      ref_children[#ref_children].isLast = true
+    end
+
+    -- Inject references as children; stash originals for toggle-off.
+    node._ref_orig_children = node.children
+    node._ref_shown = true
+    node.children = ref_children
+
+    self:_update_lines(false)
+    utils.echo(('Found %d reference(s) for "%s"'):format(#ref_children, node.name))
+
+    -- Ensure unfold
+    if folding.is_foldable(node) and node._ref_shown then
+      self:_set_folded(false)
+    end
+  end)
+end
+
+-- ╓─────────────────────────────────────────────────────────────────────────────╖
+-- ║                                   QUICKFIX                                  ║
+-- ╙─────────────────────────────────────────────────────────────────────────────╜
+
+---@param is_loc? boolean
+function Sidebar:__add_to_qf(is_loc)
+  is_loc = is_loc or false
+
+  if not self.view.win then
+    return
+  end
+
+  local node = self:_current_node()
+  if not node then
+    return
+  end
+
+  local line = node.line + 1
+  local col = node.character + 1
+
+  local buf = vim.api.nvim_win_get_buf(self.code.win)
+  local lnum = tonumber(node.line)
+  if not lnum then
+    return
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, lnum, lnum + 1, false)
+  local text = node.icon .. ' ' .. node.name .. '   ' .. vim.trim(lines[1] or '')
+
+  local list_items = {
+    items = {
+      {
+        bufnr = self.code.buf,
+        lnum = line,
+        col = col,
+        text = text,
+      },
+    },
+    title = 'Outline',
+  }
+
+  utils.save_to_qf(list_items, is_loc, 'a')
+  local open_qf_cmd = is_loc and 'lopen' or 'copen'
+
+  local is_open, _ = utils.is_vim_list_open()
+  if not is_open then
+    vim.cmd(open_qf_cmd)
+    vim.cmd('wincmd p')
+  end
+end
+
+function Sidebar:_save_to_qf()
+  local is_loc = false
+  self:__add_to_qf(is_loc)
+end
+
+-- function Sidebar:_save_to_loc()
+--   local is_loc = true
+--   self:__add_to_qf(is_loc)
+-- end
 
 return Sidebar

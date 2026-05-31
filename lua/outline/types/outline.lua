@@ -55,10 +55,16 @@
 ---@field is_root? boolean
 
 ---@class outline.FlatSymbol : outline.Symbol
+---@field _ref_file string
+---@field _ref_orig_children outline.ProviderSymbol[]
+---@field _is_ref boolean
+---@field _ref_shown boolean
+---@field folded boolean
+---@field hierarchy table
+---@field hovered boolean
 ---@field line_in_outline integer
 ---@field prefix_length integer
----@field hovered boolean
----@field folded boolean
+---@field parent {line_in_outline: outline.Symbol}
 
 -- PROVIDER
 

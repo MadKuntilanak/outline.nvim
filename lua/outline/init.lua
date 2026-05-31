@@ -129,6 +129,37 @@ end
 
 M.refresh = M.refresh_outline
 
+---Freeze the outline: stop following/watching buffer changes.
+---While frozen, switching buffers will not update the outline.
+---Call again (or OutlineUnfreeze) to resume normal behaviour.
+function M.freeze_outline()
+  return M._sidebar_do('_freeze')
+end
+
+---Unfreeze the outline: resume normal follow/watch behaviour.
+function M.unfreeze_outline()
+  return M._sidebar_do('_thaw')
+end
+
+---Toggle freeze state of the outline.
+---@return boolean|nil frozen Whether the outline is now frozen, or nil if no outline open.
+function M.toggle_freeze_outline()
+  return M._sidebar_do('_toggle_freeze')
+end
+
+M.freeze = M.freeze_outline
+M.unfreeze = M.unfreeze_outline
+M.toggle_freeze = M.toggle_freeze_outline
+
+---Show LSP references of the symbol under cursor in the outline window.
+---References appear as child nodes under the symbol with filename:line labels.
+---Call again on the same symbol to collapse them.
+function M.show_references()
+  return M._sidebar_do('_show_references')
+end
+
+M.references = M.show_references
+
 ---Open the outline window.
 ---@param opts? outline.OutlineOpts Field focus_outline=false means don't focus on outline window after opening. If opts is not provided, focus will be on outline window after opening.
 function M.open_outline(opts)
@@ -334,6 +365,22 @@ With bang, don't switch cursor focus to outline window.",
   })
   cmd('Refresh', M.refresh_outline, {
     desc = 'Trigger manual outline refresh of items.',
+    nargs = 0,
+  })
+  cmd('Freeze', M.freeze_outline, {
+    desc = 'Freeze the outline on the current buffer. Buffer switches will not update the outline.',
+    nargs = 0,
+  })
+  cmd('Unfreeze', M.unfreeze_outline, {
+    desc = 'Unfreeze the outline and resume normal follow/watch behaviour.',
+    nargs = 0,
+  })
+  cmd('ToggleFreeze', M.toggle_freeze_outline, {
+    desc = 'Toggle frozen state of the outline.',
+    nargs = 0,
+  })
+  cmd('References', M.show_references, {
+    desc = 'Show LSP references of the symbol under cursor as child nodes in the outline.',
     nargs = 0,
   })
 end

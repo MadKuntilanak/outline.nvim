@@ -222,4 +222,73 @@ function M.render_filter_text(cfg)
   return filter_text
 end
 
+local results = {
+  quickfix = {
+    title = '',
+    items = {},
+  },
+  location = {
+    title = '',
+    items = {},
+  },
+}
+
+---@param list_items table
+---@return  {items: table, title:string}
+local build_qf_opts = function(list_items)
+  local opts = {
+    items = list_items.items,
+    title = list_items.title,
+  }
+
+  local data_context = list_items.context
+  if type(data_context) == 'table' then
+    opts.context = vim.deepcopy(data_context)
+  else
+    opts.context = list_items.context
+  end
+  return opts
+end
+
+---@param buf? integer
+function M.is_loclist(buf)
+  buf = buf or 0
+  return vim.fn.getloclist(buf, { filewinid = 1 }).filewinid ~= 0
+end
+
+---@param list_items table
+---@param is_loc? boolean
+---@param winid? integer
+---@param mode? string
+function M.save_to_qf(list_items, is_loc, mode, winid)
+  is_loc = is_loc or false
+  mode = mode or ' '
+
+  local opts = build_qf_opts(list_items)
+
+  if not is_loc then
+    vim.fn.setqflist({}, mode, opts)
+    return
+  end
+
+  winid = winid or vim.api.nvim_get_current_win()
+  vim.fn.setloclist(winid, {}, mode, opts)
+end
+
+function M.is_vim_list_open()
+  local curbuf = vim.api.nvim_get_current_buf()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if curbuf == buf then
+      if M.is_loclist(win) then
+        return true, 'loclist'
+      end
+      if vim.bo[buf].filetype == 'qf' then
+        return true, 'quickfix'
+      end
+    end
+  end
+  return false, 'none'
+end
+
 return M

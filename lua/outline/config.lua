@@ -70,6 +70,25 @@ M.defaults = {
     winhl = 'NormalFloat:',
     winblend = 0,
   },
+  -- Small floating badge shown in the corner of the outline window while frozen.
+  frozen_indicator = {
+    -- Icon shown inside the badge. Any string or Nerd Font glyph.
+    icon = '  ',
+    -- Corner of the outline window: 'SE' | 'SW' | 'NE' | 'NW'.
+    -- Defaults to opposite side of outline_window.position so it never
+    -- overlaps the tree text (left outline -> SE, right outline -> SW).
+    -- anchor = nil,
+    anchor = 'SE',
+
+    -- Highlight group for the badge background/text.
+    hl_bg = { group = 'Constant', attr = 'fg' },
+    hl_fg = { group = 'Normal', attr = 'bg' },
+    sep = { back = '', front = '' },
+    winhl = '',
+
+    -- Rows from the bottom of the outline window. 0 = flush bottom, 1 = one row up, etc.
+    row_offset = 1,
+  },
   symbol_folding = {
     autofold_depth = 1,
     auto_unfold = { hovered = true, only = true },
@@ -96,12 +115,21 @@ M.defaults = {
     down_and_jump = '<C-j>',
     up_and_jump = '<C-k>',
 
+    save_to_qf = '<C-q>',
+
+    refresh = 'R',
+
+    freeze = 'f',
+    unfreeze = 'u',
+    toggle_freeze = 'F',
+    reference_symbol = 'r',
+
     open_in_vsplit = '<C-v>',
     open_in_split = '<C-s>',
     open_in_tab = '<C-t>',
     open_in_float = 'O',
 
-    filter_symbols = 'F',
+    filter_symbols = 'S',
   },
   picker = 'default', -- "default, fzf-lua"
   providers = {
