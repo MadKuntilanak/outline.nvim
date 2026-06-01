@@ -65,27 +65,19 @@ return function(opts, contents)
       col = 0.50,
       row = 0.50,
     },
+    fzf_opts = { ['--multi'] = true },
     actions = {
       ['default'] = function(selected, _)
-        if not selected then
+        if not selected or #selected == 0 then
           return
         end
 
         local symbols = {}
 
-        if #selected == 1 then
-          local sel = Util.strip_whitespace(selected[1])
-          if sel ~= Util.all_kind then
-            local str_e = fzf.utils.strip_ansi_coloring(sel)
-            local symbol_name = str_e:match('[a-zA-Z].*$')
-            if symbol_name then
-              table.insert(symbols, symbol_name)
-            end
-          end
-        else
-          for _, sel in ipairs(selected) do
-            local str_e = fzf.utils.strip_ansi_coloring(sel)
-            str_e = Util.strip_whitespace(str_e)
+        for _, sel in ipairs(selected) do
+          local str_e = fzf.utils.strip_ansi_coloring(sel)
+          str_e = Util.strip_whitespace(str_e)
+          if str_e ~= Util.all_kind then
             local symbol_name = str_e:match('[a-zA-Z].*$')
             if symbol_name then
               table.insert(symbols, symbol_name)
