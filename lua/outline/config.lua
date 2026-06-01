@@ -97,14 +97,13 @@ M.defaults = {
   keymaps = {
     show_help = '?',
     close = { '<Esc>', 'q' },
+
     goto_location = '<Cr>',
     peek_location = 'o',
     goto_and_close = '<S-Cr>',
     restore_location = '<C-g>',
-    hover_symbol = '<C-space>',
     toggle_preview = 'K',
-    rename_symbol = 'r',
-    code_actions = 'a',
+
     fold = 'h',
     fold_toggle = '<tab>',
     fold_toggle_all = '<S-tab>',
@@ -116,20 +115,22 @@ M.defaults = {
     up_and_jump = '<C-k>',
 
     save_to_qf = '<C-q>',
-
-    refresh = 'R',
+    refresh_outline = 'R',
 
     freeze = 'f',
     unfreeze = 'u',
     toggle_freeze = 'F',
+
+    code_actions = 'a',
+    filter_symbols = 'S',
+    rename_symbol = 'R',
     reference_symbol = 'r',
+    hover_symbol = '<C-space>',
 
     open_in_vsplit = '<C-v>',
     open_in_split = '<C-s>',
     open_in_tab = '<C-t>',
     open_in_float = 'O',
-
-    filter_symbols = 'S',
   },
   picker = 'default', -- "default, fzf-lua"
   providers = {

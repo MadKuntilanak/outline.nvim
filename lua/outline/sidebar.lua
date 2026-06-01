@@ -163,7 +163,7 @@ function Sidebar:setup_keymaps()
     open_in_float = { '_open_with', { { float = true } } },
     filter_symbols = { '_filter_kind_symbols', {} },
     freeze = { '_freeze', {} },
-    refresh = { '_refresh', {true} },
+    refresh_outline = { '_refresh', {true} },
     unfreeze = { '_thaw', {} },
     toggle_freeze = { '_toggle_freeze', {} },
     reference_symbol = { '_show_references', {} },
