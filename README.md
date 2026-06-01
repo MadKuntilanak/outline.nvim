@@ -23,6 +23,34 @@ be usable for outline.nvim using this script:
 
 <!-- panvimdoc-ignore-start -->
 
+> [!NOTE]
+> **This is a personal fork of [hedyhli/outline.nvim](https://github.com/hedyhli/outline.nvim).**
+>
+> I added a few features that I use in my daily workflow and that I did not want
+> to upstream into the original repo (they are too opinionated for general use).
+> The original plugin is left untouched — I only added on top of it.
+>
+> **Added features in this fork:**
+> - 🧊 **Freeze / Unfreeze** — lock the outline to a buffer so switching files
+>   doesn't change it. A configurable badge indicator shows when frozen.
+>   `:OutlineFreeze` / `:OutlineUnfreeze` / `:OutlineToggleFreeze`
+> - 🔍 **Symbol References** — show all LSP references of a symbol as
+>   collapsible child nodes directly in the outline tree, with smart cross-file
+>   jump that auto-freezes and restores your position.
+>   `:OutlineReferences`
+> - 📌 **Add to Quickfix** — send any symbol to the quickfix list with a single
+>   keymap for batch navigation or refactoring. (`save_to_qf`)
+> - 🔄 **Live symbol refresh** — outline now re-requests symbols on
+>   `InsertLeave`, `BufWritePost`, etc., so renames and new functions appear
+>   immediately without manual `:OutlineRefresh`.
+>
+> If you use this fork and run into a bug, feel free to
+> [open an issue](../../issues) — I'll do my best to look into it.
+> Just keep in mind this is a personal setup, not a maintained open-source
+> project, so no promises on timelines 🙂
+
+---
+
 # outline.nvim
 
 > *A sidebar with a tree-like outline of symbols from your code, powered by LSP.*
@@ -681,6 +709,29 @@ future.
   This is automatically triggered on events
   `outline_items.auto_update_events.refresh`.
 
+- **:OutlineFreeze**
+
+  Freeze the outline on the current buffer. While frozen, switching to any
+  other buffer will not update the outline. A badge indicator appears in the
+  corner of the outline window.
+
+- **:OutlineUnfreeze**
+
+  Unfreeze the outline and resume normal follow/watch behaviour.
+  `:OutlineFocusCode` while frozen will also unfreeze and restore the exact
+  cursor position from before the freeze.
+
+- **:OutlineToggleFreeze**
+
+  Toggle frozen state.
+
+- **:OutlineReferences**
+
+  Show all LSP references of the symbol under cursor as collapsible child nodes
+  (`filename:line`) in the outline. Call again on the same symbol to collapse.
+  Jumping to a reference in another file auto-freezes the outline so your
+  current symbol tree stays visible.
+
 
 ## Default keymaps
 
@@ -709,6 +760,16 @@ key by default from the outline window.
 | R          | Reset all folding                                  |
 | Ctrl+k     | Go up and peek location                            |
 | Ctrl+j     | Go down and peek location                          |
+| Ctrl+q     | Add symbol to quickfix list                        |
+| f          | Freeze outline (stop following buffer changes)     |
+| u          | Unfreeze outline                                   |
+| F          | Toggle freeze state                                |
+| r          | Show LSP references as child nodes                 |
+| Ctrl+v     | Open symbol in vertical split                      |
+| Ctrl+s     | Open symbol in horizontal split                    |
+| Ctrl+t     | Open symbol in new tab                             |
+| O          | Open symbol in floating window                     |
+| S          | Filter visible symbol kinds                        |
 | ?          | Show current keymaps in a floating window          |
 
 
@@ -728,6 +789,49 @@ keymaps = {
   down_and_jump = '<down>',
 }
 ```
+
+## Freeze
+
+Lock the outline to a specific buffer so it stops updating when you switch to
+other files. Useful when you want a stable reference while exploring code.
+
+```lua
+-- Default config
+frozen_indicator = {
+  icon       = '  ',
+  anchor     = 'SE',          -- 'SE'|'SW'|'NE'|'NW'
+  hl_bg      = { group = 'Constant', attr = 'fg' },
+  hl_fg      = { group = 'Normal',   attr = 'bg' },
+  sep        = { back = '', front = '' },
+  winhl      = '',
+  row_offset = 1,             -- rows from the bottom of the outline window
+},
+```
+
+**Returning to the frozen buffer:**
+`:OutlineFocusCode` is freeze-aware — it restores the exact buffer and cursor
+position from the moment `freeze` was triggered, regardless of where you have
+navigated since. No jumplist dependency.
+
+## References
+
+Show all LSP references of a symbol as child nodes directly in the outline
+tree:
+
+```
+ 󰊕  M.setup
+    󰊕  keymaps.lua:144
+    󰊕  config.lua:89
+    󰊕  init.lua:12
+```
+
+**Workflow:**
+1. Navigate to a symbol in the outline and press `r`.
+2. Child nodes appear — each is a call site (`filename:line`).
+3. Press `<CR>` on a child to jump there. If it's in another file, the outline
+   **auto-freezes** so your current symbol tree stays visible.
+4. Press `:OutlineFocusCode` to return to the original buffer and unfreeze.
+5. Press `r` again on the parent symbol to collapse the reference list.
 
 ## Highlights
 
