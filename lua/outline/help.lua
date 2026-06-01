@@ -4,6 +4,41 @@ local utils = require('outline.utils')
 
 local M = {}
 
+---Shown in the help window (?). Actions not listed here fall back to the
+---raw action name so new keymaps degrade gracefully.
+local action_desc = {
+  show_help = 'Show this help window',
+  close = 'Close outline window',
+  goto_location = 'Jump to symbol (may auto-close)',
+  peek_location = 'Jump to symbol, keep focus on outline',
+  goto_and_close = 'Jump to symbol and close outline',
+  restore_location = 'Move outline cursor to match current code position',
+  hover_symbol = 'Show LSP hover info for symbol',
+  toggle_preview = 'Toggle code preview for symbol',
+  rename_symbol = 'Rename symbol via LSP',
+  code_actions = 'Show LSP code actions for symbol',
+  fold = 'Fold / collapse node',
+  unfold = 'Unfold / expand node',
+  fold_toggle = 'Toggle fold for node',
+  fold_toggle_all = 'Toggle fold for all nodes',
+  fold_all = 'Fold all nodes',
+  unfold_all = 'Unfold all nodes',
+  fold_reset = 'Reset all folds to default',
+  down_and_jump = 'Move down and peek location',
+  up_and_jump = 'Move up and peek location',
+  save_to_qf = 'Add symbol to quickfix list',
+  refresh_outline = 'Manually refresh outline symbols',
+  freeze = 'Freeze outline (stop following buffer changes)',
+  unfreeze = 'Unfreeze outline (resume following buffer changes)',
+  toggle_freeze = 'Toggle freeze state',
+  reference_symbol = 'Show LSP references as child nodes',
+  open_in_vsplit = 'Open symbol location in vertical split',
+  open_in_split = 'Open symbol location in horizontal split',
+  open_in_tab = 'Open symbol location in new tab',
+  open_in_float = 'Open symbol location in floating window',
+  filter_symbols = 'Filter visible symbol kinds',
+}
+
 function M.show_keymap_help()
   local keyhint = 'Press q or <Esc> to close this window.'
   local title = 'Current keymaps:'
@@ -16,27 +51,56 @@ function M.show_keymap_help()
   local indent = '    '
   local key_hl = 'OutlineKeymapHelpKey'
 
+  local entries = {}
   for action, keys in pairs(cfg.o.keymaps) do
+    local key_str, disabled
     if type(keys) == 'string' then
-      table.insert(left, keys)
-      table.insert(hl, {
-        line = #left + 3,
-        from = #indent,
-        to = #keys + #indent,
-        name = key_hl,
-      })
+      key_str = keys
+      disabled = false
     elseif next(keys) == nil then
-      table.insert(left, '(none)')
+      key_str = '(none)'
+      disabled = true
+    else
+      key_str = table.concat(keys, ' / ')
+      disabled = false
+    end
+    table.insert(entries, {
+      key_str = key_str,
+      desc = action_desc[action] or action,
+      action = action,
+      keys = keys,
+      disabled = disabled,
+    })
+  end
+
+  -- Hmm sort alphabetically by description? (case-insensitive).
+  table.sort(entries, function(a, b)
+    return a.desc:lower() < b.desc:lower()
+  end)
+
+  for _, entry in ipairs(entries) do
+    table.insert(left, entry.key_str)
+    if #entry.key_str > max_left_width then
+      max_left_width = #entry.key_str
+    end
+
+    if entry.disabled then
       table.insert(hl, {
         line = #left + 3,
         from = #indent,
         name = 'OutlineKeymapHelpDisabled',
         to = #indent + 6,
       })
+    elseif type(entry.keys) == 'string' then
+      table.insert(hl, {
+        line = #left + 3,
+        from = #indent,
+        to = #entry.key_str + #indent,
+        name = key_hl,
+      })
     else
       local i = #indent
-      table.insert(left, table.concat(keys, ' / '))
-      for _, key in ipairs(keys) do
+      for _, key in ipairs(entry.keys) do
         table.insert(hl, {
           line = #left + 3,
           from = i,
@@ -46,10 +110,8 @@ function M.show_keymap_help()
         i = i + #key + 3
       end
     end
-    if #left[#left] > max_left_width then
-      max_left_width = #left[#left]
-    end
-    table.insert(right, action)
+
+    table.insert(right, entry.desc)
   end
 
   for i, l in ipairs(left) do
