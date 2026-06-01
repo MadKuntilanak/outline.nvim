@@ -1107,8 +1107,18 @@ function Sidebar:focus_code()
       if not self:has_code_win() then
         self.code.win = vim.api.nvim_get_current_win()
       end
+
       vim.api.nvim_win_call(self.code.win, function()
-        vim.cmd('edit ' .. vim.fn.fnameescape(fname))
+        local ref_buf = vim.fn.bufnr(fname)
+        if ref_buf ~= -1 then
+          vim.api.nvim_win_set_buf(self.code.win, ref_buf)
+        else
+          local ok, err = pcall(vim.cmd, 'edit ' .. vim.fn.fnameescape(fname))
+          if not ok then
+            utils.echo('outline: cannot focus code: ' .. (err or ''))
+            return
+          end
+        end
       end)
       target_buf = vim.api.nvim_win_get_buf(self.code.win)
     end
