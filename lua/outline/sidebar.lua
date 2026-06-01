@@ -329,7 +329,11 @@ function Sidebar:update_cursor_pos(current)
     -- Padding area between lineno column and start of guides
     col = #tostring(vim.api.nvim_buf_line_count(buf) - 1)
   end
-  if current and vim.api.nvim_win_is_valid(self.code.win) then -- Don't attempt to set cursor if the matching node is not found
+  if
+    current
+    and vim.api.nvim_win_is_valid(self.code.win)
+    and vim.api.nvim_win_is_valid(self.view.win)
+  then -- Don't attempt to set cursor if the matching node is not found
     vim.api.nvim_win_set_cursor(self.view.win, { current.line_in_outline, col })
   end
 end
