@@ -394,6 +394,26 @@ function Sidebar:_handle_invalid_response(response)
   return true
 end
 
+---@param prefix_msg string
+---@param filter_text table
+local function filter_text_msg(prefix_msg, filter_text)
+  if not type(filter_text) == 'table' then
+    return
+  end
+
+  local msg
+  if #filter_text == 1 then
+    msg = prefix_msg .. ' ' .. filter_text[1]
+  else
+    local items = {}
+    for _, v in ipairs(filter_text) do
+      table.insert(items, '  ' .. v)
+    end
+    msg = prefix_msg .. ':\n' .. table.concat(items, '\n')
+  end
+  return msg
+end
+
 ---@param response outline.ProviderSymbol[]
 ---@param request_buf? integer The buffer that was active when the request was dispatched.
 ---                            When provided, stale responses (user already moved away) are dropped.
@@ -465,7 +485,8 @@ function Sidebar:refresh_handler(response, request_buf)
       end
     end, function()
       local filter_text = utils.render_filter_text(cfg)
-      loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+      local msg = filter_text_msg('No symbols for', filter_text)
+      loading.set_loading(self.view.buf, true, false, msg)
     end)
     return
   end
@@ -476,7 +497,8 @@ function Sidebar:refresh_handler(response, request_buf)
   local items = parser.parse(response, curbuf)
   if vim.tbl_isempty(items) then
     local filter_text = utils.render_filter_text(cfg)
-    loading.set_loading(self.view.buf, true, false, ('No symbols for ' .. filter_text))
+    local msg = filter_text_msg('No symbols for', filter_text)
+    loading.set_loading(self.view.buf, true, false, msg)
     return
   end
 

@@ -202,9 +202,21 @@ function M.render_centered_text(bufnr, text)
   for _ = 1, (height / 2) - (#text / 2) do
     table.insert(lines, '')
   end
+  local all_sublines = {}
   for _, line in ipairs(text) do
-    line = string.rep(' ', (width - vim.api.nvim_strwidth(line)) / 2) .. line
-    table.insert(lines, line)
+    for _, subline in ipairs(vim.split(line, '\n', { plain = true })) do
+      table.insert(all_sublines, subline)
+    end
+  end
+
+  local max_width = 0
+  for _, subline in ipairs(all_sublines) do
+    max_width = math.max(max_width, vim.api.nvim_strwidth(subline))
+  end
+  local left = string.rep(' ', (width - max_width) / 2)
+
+  for _, subline in ipairs(all_sublines) do
+    table.insert(lines, left .. subline)
   end
   vim.bo[bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
@@ -212,13 +224,12 @@ function M.render_centered_text(bufnr, text)
 end
 
 function M.render_filter_text(cfg)
-  local filter_text = ''
+  local filter_text = {}
   for i, _ in pairs(cfg.o.symbols.filter.default) do
     if cfg.o.symbols.filter.default[i] == true then
-      filter_text = i .. ' '
+      table.insert(filter_text, i)
     end
   end
-  -- return table.concat(filter_text, ' ')
   return filter_text
 end
 
