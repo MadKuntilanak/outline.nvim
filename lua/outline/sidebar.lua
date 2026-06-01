@@ -697,7 +697,16 @@ function Sidebar:__goto_location(change_focus)
 
     -- Open the reference file in the code window (like :edit).
     vim.api.nvim_win_call(self.code.win, function()
-      vim.cmd('edit ' .. vim.fn.fnameescape(node._ref_file))
+      local ref_buf = vim.fn.bufnr(node._ref_file)
+      if ref_buf ~= -1 then
+        vim.api.nvim_win_set_buf(self.code.win, ref_buf)
+      else
+        local ok, err = pcall(vim.cmd, 'edit ' .. vim.fn.fnameescape(node._ref_file))
+        if not ok then
+          utils.echo('outline: cannot open reference file: ' .. (err or ''))
+          return
+        end
+      end
     end)
 
     vim.api.nvim_win_set_cursor(self.code.win, { node.line + 1, node.character })
