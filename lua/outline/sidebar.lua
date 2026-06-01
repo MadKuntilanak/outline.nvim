@@ -547,10 +547,18 @@ function Sidebar:__refresh(force)
   end
 
   if force then
-    self:_toggle_freeze()
-    vim.cmd('wincmd p')
+    if self._frozen then
+      self._frozen = false
+      self._freeze_snapshot = nil
+      self:_freeze_indicator_close()
+    end
 
-    -- unplan: need this to get rid children of references?
+    self:focus_code()
+    self:__refresh_current()
+
+    utils.echo('Outline refresh.')
+
+    -- unplan: do we need this to remove children of references?
     -- local node = self:_current_node()
     -- if not node then
     --   utils.echo('No symbol under cursor.')
