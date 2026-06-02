@@ -1481,7 +1481,14 @@ function Sidebar:build_outline(find_node)
     local hl_end = hl_start + #node_icon -- until after icon
     local kind_entry = symbols.kinds[node.kind]
     local icon_entry = kind_entry and cfg.o.symbols.icons[kind_entry]
-    local hl_type = icon_entry and icon_entry.hl or 'Normal'
+    -- For reference nodes: use icon_hl from config if set, otherwise
+    -- fall back to parent symbol kind color (nil = inherit).
+    local hl_type
+    if node._is_ref and cfg.o.references and cfg.o.references.icon_hl then
+      hl_type = cfg.o.references.icon_hl
+    else
+      hl_type = icon_entry and icon_entry.hl or 'Normal'
+    end
     -- stylua: ignore start
     table.insert(hl, {
       line = line_count, name = hl_type,

@@ -1328,8 +1328,17 @@ USAGE ~
 1. Open the outline and navigate to a symbol (e.g. a function).
 2. Press `r` (default `reference_symbol` keymap) or run `:OutlineReferences`.
 3. Child nodes appear under the symbol, each labelled `filename:line`.
+   A virtual text marker (default `󰆽`) appears at end-of-line on the
+   parent symbol to indicate references are expanded.
 4. Press `<CR>` on a child node to jump to that reference.
-5. Press `r` again on the same symbol to collapse the references.
+5. Press `r` again on the same symbol to collapse the references and
+   remove the marker.
+
+Note: while references are expanded, automatic symbol refresh is paused
+(events like `BufWritePost`, `InsertLeave` will not update the outline).
+This prevents the injected reference nodes from being wiped by a background
+refresh. To get a fresh symbol list, collapse the references first, then
+trigger a manual refresh with the `refresh` keymap or `:OutlineRefresh`.
 
 JUMPING TO REFERENCES IN OTHER FILES ~
 
@@ -1369,6 +1378,42 @@ WORKFLOW EXAMPLE ~
     " Press :OutlineFocusCode to return
     [outline: init.lua]  |  [init.lua, original cursor]
        󰊕 M.setup             " outline UNFROZEN, resumes following
+<
+
+MARKER AND ICON CONFIGURATION ~
+
+All reference display options are configured via the `references` key:
+
+>lua
+    references = {
+      -- Virtual text shown at end-of-line on the parent symbol when
+      -- references are expanded.
+      marker    = ' 󰆽',       -- any string or Nerd Font glyph
+      marker_hl = 'DiagnosticHint', -- highlight group for the marker
+
+      -- Icon shown next to each reference child node.
+      icon      = '󰌹 ',
+
+      -- Highlight group for the reference icon.
+      -- nil (default) = inherit the color from the parent symbol's kind
+      --                 (e.g. Function nodes stay yellow).
+      -- Set to a highlight group to visually distinguish refs from
+      -- real symbols: e.g. 'Comment' for grey, 'DiagnosticInfo' for blue.
+      icon_hl   = nil,
+    },
+<
+
+Examples:
+
+>lua
+    -- Grey icons to clearly distinguish references from real symbols
+    references = { icon_hl = 'Comment' }
+
+    -- Blue icons
+    references = { icon_hl = 'DiagnosticInfo' }
+
+    -- Inherit parent color (default, no config needed)
+    references = { icon_hl = nil }
 <
 
 CHILD NODE FIELDS ~

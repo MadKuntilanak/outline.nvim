@@ -89,6 +89,15 @@ M.defaults = {
     -- Rows from the bottom of the outline window. 0 = flush bottom, 1 = one row up, etc.
     row_offset = 1,
   },
+  references = {
+    -- Virtual text marker shown at end-of-line on nodes with references expanded.
+    marker = ' 󰆽',
+    marker_hl = 'DiagnosticWarn',
+    -- Icon for reference child nodes.
+    icon = '󰌹 ',
+    -- Highlight group for the reference icon. nil = inherit from parent symbol kind.
+    icon_hl = nil,
+  },
   symbol_folding = {
     autofold_depth = 1,
     auto_unfold = { hovered = true, only = true },
