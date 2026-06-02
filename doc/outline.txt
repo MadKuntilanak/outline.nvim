@@ -202,20 +202,26 @@ Show defaults ~
 
       frozen_indicator = {
         -- Icon shown inside the badge. Any string or Nerd Font glyph.
-        icon = '  ',
+        icon = '  ',
+
         -- Corner of the outline window: 'SE' | 'SW' | 'NE' | 'NW'.
         -- Defaults to opposite side of outline_window.position so it never
         -- overlaps the tree text (left outline -> SE, right outline -> SW).
-        -- anchor = nil,
         anchor = 'SE',
 
-        -- Highlight group for the badge background/text.
+        -- Highlight: hl_bg is used for the badge background color (taken from
+        -- a highlight group attribute), hl_fg for the foreground/text color.
         hl_bg = { group = 'Constant', attr = 'fg' },
-        hl_fg = { group = 'Normal', attr = 'bg' },
-        sep = { back = '', front = '' },
+        hl_fg = { group = 'Normal',   attr = 'bg' },
+
+        -- Separator characters drawn around the icon (powerline-style).
+        sep = { back = '', front = '' },
+
+        -- Additional winhighlight string applied to the float window.
         winhl = '',
 
-        -- Rows from the bottom of the outline window. 0 = flush bottom, 1 = one row up, etc.
+        -- Rows from the bottom of the outline window.
+        -- 0 = flush bottom, 1 = one row up, etc.
         row_offset = 1,
       },
 
