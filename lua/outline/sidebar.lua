@@ -1519,6 +1519,21 @@ function Sidebar:build_outline(find_node)
   self.view:rewrite_lines(lines)
   self.view:add_hl_and_ns(hl, self.flats, details, linenos)
 
+  -- Add virt_text marker on nodes that have references expanded.
+  if self.view.buf and vim.api.nvim_buf_is_valid(self.view.buf) then
+    local ref_marker = (cfg.o.references and cfg.o.references.marker) or ' 󰆽'
+    local ref_marker_hl = (cfg.o.references and cfg.o.references.marker_hl) or 'DiagnosticHint'
+    local hl_mod = require('outline.highlight')
+    for _, node in ipairs(self.flats) do
+      if node._ref_shown then
+        vim.api.nvim_buf_set_extmark(self.view.buf, hl_mod.ns.vt, node.line_in_outline - 1, -1, {
+          virt_text = { { ref_marker, ref_marker_hl } },
+          virt_text_pos = 'eol',
+          hl_mode = 'combine',
+        })
+      end
+    end
+  end
   return put_cursor
 end
 
@@ -1526,6 +1541,10 @@ end
 -- ╏                           FREEZE / REFERENCES                               ╏
 -- ┗╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┛
 
+---@param float_win integer
+---@param parent_win integer
+---@param anchor string
+---@param row_offset integer
 local function _freeze_indicator_update(float_win, parent_win, anchor, row_offset)
   if not float_win or not vim.api.nvim_win_is_valid(float_win) then
     return
