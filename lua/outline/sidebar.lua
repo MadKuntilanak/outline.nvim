@@ -1811,7 +1811,7 @@ function Sidebar:_show_references()
     for _, loc in ipairs(result) do
       local fname = vim.uri_to_fname(loc.uri)
       local short = fname:match('([^/\\]+)$') or fname
-      local lnum = loc.range.start.line + 1 -- 1-based for display label
+      local lnum = loc.range.start.line + 1
 
       local ref_depth = (node.depth or 1) + 1
       -- hierarchy: array of isLast booleans for each ancestor level,
@@ -1823,18 +1823,15 @@ function Sidebar:_show_references()
       table.insert(ref_hir, (#result == #ref_children + 1)) -- isLast for parent level
 
       ref_children[#ref_children + 1] = {
-        -- required by parser iterator (parser.lua:117)
         _i = 1,
-        -- required by build_outline for tree guides
-        isLast = false, -- patched below after loop
+        isLast = false,
         hierarchy = ref_hir,
         depth = ref_depth,
         parent = node,
         -- symbol fields
         name = short .. ':' .. lnum,
         kind = node.kind,
-        -- icon = symbols.icon_from_kind(node.kind, self.code.buf) or "󰌹 "
-        icon = '󰌹 ',
+        icon = (cfg.o.references and cfg.o.references.icon) or '󰌹 ',
         detail = nil,
         deprecated = false,
         -- match parser.lua convention: plain line numbers
@@ -1849,7 +1846,6 @@ function Sidebar:_show_references()
       }
     end
 
-    -- Fix isLast flag: last sibling needs isLast=true for correct tree guides.
     if #ref_children > 0 then
       ref_children[#ref_children].isLast = true
     end
@@ -1859,13 +1855,12 @@ function Sidebar:_show_references()
     node._ref_shown = true
     node.children = ref_children
 
+    if folding.is_foldable(node) and folding.is_folded(node) then
+      node.folded = false
+    end
+
     self:_update_lines(false)
     utils.echo(('Found %d reference(s) for "%s"'):format(#ref_children, node.name))
-
-    -- Ensure unfold
-    if folding.is_foldable(node) and node._ref_shown then
-      self:_set_folded(false)
-    end
   end)
 end
 
