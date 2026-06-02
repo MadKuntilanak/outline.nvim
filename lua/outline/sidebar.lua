@@ -532,6 +532,13 @@ function Sidebar:__refresh_current()
   if not self.view:is_open() or not self.provider then
     return
   end
+
+  for _, node in ipairs(self.flats or {}) do
+    if node._ref_shown then
+      return
+    end
+  end
+
   local request_buf = self.code.buf
   self.provider.request_symbols(function(res)
     if self.view:is_open() then
@@ -575,12 +582,18 @@ function Sidebar:__refresh(force)
       self:_freeze_indicator_close()
     end
 
-    self:focus_code()
-    self:__refresh_current()
+    for _, node in ipairs(self.flats or {}) do
+      if node._ref_shown then
+        node._ref_shown = nil
+        node.children = node._ref_orig_children or {}
+        node._ref_orig_children = nil
+      end
+    end
 
+    self:__refresh_current()
     utils.echo('Outline refresh.')
 
-    -- unplan: do we need this to remove children of references?
+    -- unplan: Is this needed to remove the children of references?
     -- local node = self:_current_node()
     -- if not node then
     --   utils.echo('No symbol under cursor.')
