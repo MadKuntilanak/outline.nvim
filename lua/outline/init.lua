@@ -13,14 +13,6 @@ local M = {
 }
 
 local function setup_global_autocmd()
-  if utils.table_has_content(cfg.o.outline_items.auto_update_events.items) then
-    vim.api.nvim_create_autocmd(cfg.o.outline_items.auto_update_events.items, {
-      pattern = '*',
-      callback = function()
-        M._sidebar_do('_refresh')
-      end,
-    })
-  end
   vim.api.nvim_create_autocmd('WinEnter', {
     pattern = '*',
     callback = function()
