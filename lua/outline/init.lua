@@ -114,9 +114,9 @@ function M.follow_cursor(opts)
   return M._sidebar_do('follow_cursor', { opts })
 end
 
----Trigger re-requesting of symbols from provider
+---Trigger re-requesting of symbols from provider (forced, bypasses all guards)
 function M.refresh_outline()
-  return M._sidebar_do('__refresh')
+  return M._sidebar_do('_refresh', { true })
 end
 
 M.refresh = M.refresh_outline
