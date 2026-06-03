@@ -274,7 +274,7 @@ function Sidebar:setup_attached_buffer_autocmd()
       group = self.augroup,
       buffer = code_buf,
       callback = function()
-        self:__refresh_current()
+        self:_refresh()
       end,
     })
   end
@@ -523,30 +523,6 @@ end
 
 local _refresh_timer = nil
 
----Re-request symbols for the currently attached buffer (same buf, symbols changed).
----Unlike __refresh(), this does NOT bail out when buf == self.code.buf.
-function Sidebar:__refresh_current()
-  if self._frozen then
-    return
-  end
-  if not self.view:is_open() or not self.provider then
-    return
-  end
-
-  for _, node in ipairs(self.flats or {}) do
-    if node._ref_shown then
-      return
-    end
-  end
-
-  local request_buf = self.code.buf
-  self.provider.request_symbols(function(res)
-    if self.view:is_open() then
-      self:refresh_handler(res, request_buf)
-    end
-  end, nil, self.provider_info)
-end
-
 ---Re-request symbols from provider
 ---@param force? boolean
 function Sidebar:__refresh(force)
@@ -590,8 +566,19 @@ function Sidebar:__refresh(force)
       end
     end
 
-    self:__refresh_current()
+    if not self.provider then
+      self.provider, self.provider_info = providers.find_provider()
+    end
+    if self.provider then
+      local request_buf = self.code.buf
+      self.provider.request_symbols(function(res)
+        if self.view:is_open() then
+          self:refresh_handler(res, request_buf)
+        end
+      end, nil, self.provider_info)
+    end
     utils.echo('Outline refresh.')
+    return
 
     -- unplan: Is this needed to remove the children of references?
     -- local node = self:_current_node()
@@ -629,6 +616,16 @@ function Sidebar:__refresh(force)
       local cur = vim.api.nvim_get_current_buf()
       if cur == self.code.buf or cur == self.view.buf then
         return
+      end
+
+      -- Pause auto-refresh while references are expanded on the attached buffer.
+      -- Only guard when still on the same buffer; switching buffers must proceed.
+      if cur == self.code.buf then
+        for _, node in ipairs(self.flats or {}) do
+          if node._ref_shown then
+            return
+          end
+        end
       end
 
       self.provider, self.provider_info = providers.find_provider()
