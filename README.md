@@ -26,6 +26,8 @@ be usable for outline.nvim using this script:
 > [!NOTE]
 > **This is a personal fork of [hedyhli/outline.nvim](https://github.com/hedyhli/outline.nvim).**
 >
+> STATUS: This fork is currently **under construction**!!
+>
 > I added a few features that I use in my daily workflow and that I did not want
 > to upstream into the original repo (they are too opinionated for general use).
 > The original plugin is left untouched — I only added on top of it.
