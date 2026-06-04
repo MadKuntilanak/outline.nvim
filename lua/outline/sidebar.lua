@@ -31,6 +31,7 @@ local Sidebar = {}
 ---@field provider? outline.Provider
 ---@field provider_info? table
 ---@field preview outline.Preview|outline.LivePreview
+---@field _ref_cache table
 
 function Sidebar:new(id)
   return setmetatable({
@@ -150,7 +151,6 @@ function Sidebar:setup_keymaps()
     down_and_jump = { '_move_and_jump', { 'down' } },
     up_and_jump = { '_move_and_jump', { 'up' } },
     fold_toggle = { '_toggle_fold', {} },
-    save_to_qf = { "_save_to_qf", {} },
     fold = { '_set_folded', { true } },
     unfold = { '_set_folded', { false } },
     fold_toggle_all = { '_toggle_all_fold', {} },
@@ -163,10 +163,15 @@ function Sidebar:setup_keymaps()
     open_in_float = { '_open_with', { { float = true } } },
     filter_symbols = { '_filter_kind_symbols', {} },
     freeze = { '_freeze', {} },
-    refresh_outline = { '_refresh', {true} },
+    refresh = { '_refresh', {true} },
     unfreeze = { '_thaw', {} },
     toggle_freeze = { '_toggle_freeze', {} },
-    reference_symbol = { '_show_references', {} },
+    save_to_qf = { "_save_to_qf", {} },
+    next_ref_node = { '_nav_ref_node', { true } },
+    prev_ref_node = { '_nav_ref_node', { false } },
+    reference_symbol = {
+      providers.action, { self, 'show_references', { self } }
+    },
     rename_symbol = {
       providers.action, { self, 'rename_symbol', { self } }
     },
@@ -274,7 +279,7 @@ function Sidebar:setup_attached_buffer_autocmd()
       group = self.augroup,
       buffer = code_buf,
       callback = function()
-        self:_refresh()
+        self:_refresh(false, true)
       end,
     })
   end
@@ -512,6 +517,33 @@ function Sidebar:refresh_handler(response, request_buf)
 
   self._symbols_cache[curbuf] = vim.deepcopy(self.items)
 
+  -- Restores _ref_shown state for nodes matching by name+line after
+  -- the user returns to this buffer from another buffer.
+  if self._ref_cache then
+    local function restore_refs(nodes)
+      if not nodes then
+        return
+      end
+      for _, node in ipairs(nodes) do
+        local cache_key = tostring(curbuf) .. ':' .. tostring(node.line)
+        local cached = self._ref_cache[cache_key]
+        if cached and cached.node_name == node.name then
+          node._ref_orig_children = cached.orig_children
+          node._ref_shown = true
+          node.children = cached.ref_children
+          for _, child in ipairs(node.children) do
+            child.parent = node
+          end
+          if folding.is_foldable(node) and folding.is_folded(node) then
+            node.folded = false
+          end
+        end
+        restore_refs(node.children)
+      end
+    end
+    restore_refs(self.items)
+  end
+
   local update_cursor = newbuf or cfg.o.outline_items.auto_set_cursor
   self:_update_lines(update_cursor)
 end
@@ -524,34 +556,66 @@ end
 local _refresh_timer = nil
 
 ---Re-request symbols from provider
----@param force? boolean
-function Sidebar:__refresh(force)
-  force = force or false
-
+---@param is_force boolean
+---@param is_current boolean
+function Sidebar:__refresh(is_force, is_current)
   -- When frozen, ignore all buffer-switch refresh requests.
-  if not force and self._frozen then
+  if not is_force and self._frozen then
     return
   end
 
   local buf = vim.api.nvim_get_current_buf()
   local focused_outline = self.view.buf == buf
-  if (not force and focused_outline) or (not force and not self.view:is_open()) then
+  if (not is_force and focused_outline) or (not is_force and not self.view:is_open()) then
     return
   end
   local ft = utils.buf_get_option(buf, 'ft')
   local listed = utils.buf_get_option(buf, 'buflisted')
   if
-    (not force and ft == 'OutlineHelp')
-    or (not force and not (listed or ft == 'help' or ft == 'org'))
+    (not is_force and ft == 'OutlineHelp')
+    or (not is_force and not (listed or ft == 'help' or ft == 'org'))
   then
     return
   end
 
-  if not force and (buf == self.code.buf) then
+  local function __resend_request_symbols()
+    -- utils.echo('Resend symbols') -- debug
+
+    -- Pause auto-refresh while references are expanded on the attached buffer.
+    -- Only guard when still on the same buffer; switching buffers must proceed.
+    local cur = vim.api.nvim_get_current_buf()
+    if cur == self.code.buf then
+      for _, node in ipairs(self.flats or {}) do
+        if node._ref_shown then
+          return
+        end
+      end
+    end
+
+    if not self.provider then
+      self.provider, self.provider_info = providers.find_provider()
+    end
+
+    if self.provider then
+      local request_buf = self.code.buf
+      self.provider.request_symbols(function(res)
+        if self.view:is_open() then
+          self:refresh_handler(res, request_buf)
+        end
+      end, nil, self.provider_info)
+    end
+  end
+
+  if not is_force and is_current then
+    __resend_request_symbols()
     return
   end
 
-  if force then
+  if not is_force and (buf == self.code.buf) then
+    return
+  end
+
+  if is_force then
     if self._frozen then
       self._frozen = false
       self._freeze_snapshot = nil
@@ -566,6 +630,16 @@ function Sidebar:__refresh(force)
       end
     end
 
+    -- Clear ref cache for current buf so force-refresh starts fresh.
+    if self._ref_cache then
+      local buf_prefix = tostring(self.code.buf) .. ':'
+      for k in pairs(self._ref_cache) do
+        if k:sub(1, #buf_prefix) == buf_prefix then
+          self._ref_cache[k] = nil
+        end
+      end
+    end
+
     if not self.provider then
       self.provider, self.provider_info = providers.find_provider()
     end
@@ -577,21 +651,11 @@ function Sidebar:__refresh(force)
         end
       end, nil, self.provider_info)
     end
+
+    __resend_request_symbols()
+
     utils.echo('Outline refresh.')
     return
-
-    -- unplan: Is this needed to remove the children of references?
-    -- local node = self:_current_node()
-    -- if not node then
-    --   utils.echo('No symbol under cursor.')
-    --   return
-    -- end
-    -- if node._ref_shown then
-    --   node._ref_shown = nil
-    --   node.children = node._ref_orig_children
-    --   node._ref_orig_children = nil
-    --   self:_update_lines(false)
-    -- end
   end
 
   -- Debounce: wait 150ms
@@ -618,16 +682,6 @@ function Sidebar:__refresh(force)
         return
       end
 
-      -- Pause auto-refresh while references are expanded on the attached buffer.
-      -- Only guard when still on the same buffer; switching buffers must proceed.
-      if cur == self.code.buf then
-        for _, node in ipairs(self.flats or {}) do
-          if node._ref_shown then
-            return
-          end
-        end
-      end
-
       self.provider, self.provider_info = providers.find_provider()
       if self.provider then
         -- Capture which buffer this request was made for.
@@ -648,10 +702,12 @@ function Sidebar:__refresh(force)
 end
 
 -- stylua: ignore start
----@param force? boolean
-function Sidebar:_refresh(force)
-  force = force or false
-  (utils.debounce(function() self:__refresh(force) end, 100))()
+---@param is_force? boolean
+---@param is_current? boolean
+function Sidebar:_refresh(is_force, is_current)
+  is_force = is_force or false
+  is_current = is_current or false
+  (utils.debounce(function() self:__refresh(is_force, is_current) end, 100))()
 end
 -- stylua: ignore end
 
@@ -1541,9 +1597,7 @@ function Sidebar:build_outline(find_node)
   return put_cursor
 end
 
--- ┏╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┓
--- ╏                           FREEZE / REFERENCES                               ╏
--- ┗╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍╍┛
+-- ├─────────────────────────────────┤ Freeze ├─────────────────────────────────┤
 
 ---@param float_win integer
 ---@param parent_win integer
@@ -1780,7 +1834,7 @@ function Sidebar:_thaw()
   -- Re-attach follow-cursor autocmds for the current code buffer.
   self:setup_attached_buffer_autocmd()
   -- Immediately refresh to pick up wherever the user currently is.
-  self:__refresh()
+  self:__refresh(false, false)
   utils.echo('Outline unfrozen.')
 end
 
@@ -1796,113 +1850,59 @@ function Sidebar:_toggle_freeze()
   end
 end
 
----Show LSP references of the symbol under cursor as child nodes in the outline.
----Each reference appears as `filename:line` under the symbol in the hierarchy.
----Calling again on the same symbol toggles them off.
-function Sidebar:_show_references()
+---Navigate to the next or previous node that has references expanded.
+---@param next boolean true = next, false = previous
+function Sidebar:_nav_ref_node(next)
   if not self.view:is_open() then
-    utils.echo('Outline is not open.')
-    return
-  end
-  if not self.provider then
-    utils.echo('No provider attached.')
     return
   end
 
-  local node = self:_current_node()
-  if not node then
-    utils.echo('No symbol under cursor.')
-    return
-  end
-
-  -- Toggle off: restore original children.
-  if node._ref_shown then
-    node._ref_shown = nil
-    node.children = node._ref_orig_children
-    node._ref_orig_children = nil
-    self:_update_lines(false)
-    return
-  end
-
-  -- node.line/character = selection start (0-based) for LSP position params.
-  -- node.range_start/range_end = plain line numbers (not tables).
-  local params = {
-    textDocument = { uri = vim.uri_from_bufnr(self.code.buf) },
-    position = {
-      line = node.line,
-      character = node.character,
-    },
-    context = { includeDeclaration = false },
-  }
-
-  utils.echo('Fetching references…')
-
-  vim.lsp.buf_request(self.code.buf, 'textDocument/references', params, function(err, result)
-    if err or not result or #result == 0 then
-      utils.echo('No references found.')
-      return
+  -- Collect all outline lines where a node has _ref_shown = true.
+  local ref_lines = {}
+  for _, node in ipairs(self.flats or {}) do
+    if node._ref_shown and node.line_in_outline then
+      table.insert(ref_lines, node.line_in_outline)
     end
+  end
 
-    local ref_children = {}
-    for _, loc in ipairs(result) do
-      local fname = vim.uri_to_fname(loc.uri)
-      local short = fname:match('([^/\\]+)$') or fname
-      local lnum = loc.range.start.line + 1
+  if #ref_lines == 0 then
+    utils.echo('No expanded references in outline.')
+    return
+  end
 
-      local ref_depth = (node.depth or 1) + 1
-      -- hierarchy: array of isLast booleans for each ancestor level,
-      -- used by build_outline to draw tree guide prefix chars.
-      local ref_hir = {}
-      for i, v in ipairs(node.hierarchy or {}) do
-        ref_hir[i] = v
+  local cur = vim.api.nvim_win_get_cursor(self.view.win)[1]
+  local target
+
+  if next then
+    -- Find first ref_line strictly after cursor.
+    for _, ln in ipairs(ref_lines) do
+      if ln > cur then
+        target = ln
+        break
       end
-      table.insert(ref_hir, (#result == #ref_children + 1)) -- isLast for parent level
-
-      ref_children[#ref_children + 1] = {
-        _i = 1,
-        isLast = false,
-        hierarchy = ref_hir,
-        depth = ref_depth,
-        parent = node,
-        -- symbol fields
-        name = short .. ':' .. lnum,
-        kind = node.kind,
-        icon = (cfg.o.references and cfg.o.references.icon) or '󰌹 ',
-        detail = nil,
-        deprecated = false,
-        -- match parser.lua convention: plain line numbers
-        line = loc.range.start.line,
-        character = loc.range.start.character,
-        range_start = loc.range.start.line,
-        range_end = loc.range['end'].line,
-        -- jump logic: open this file instead of code.buf
-        _is_ref = true,
-        _ref_file = fname,
-        children = {},
-      }
     end
-
-    if #ref_children > 0 then
-      ref_children[#ref_children].isLast = true
+    if not target then
+      target = ref_lines[1]
     end
-
-    -- Inject references as children; stash originals for toggle-off.
-    node._ref_orig_children = node.children
-    node._ref_shown = true
-    node.children = ref_children
-
-    if folding.is_foldable(node) and folding.is_folded(node) then
-      node.folded = false
+  else
+    -- Find last ref_line strictly before cursor.
+    for i = #ref_lines, 1, -1 do
+      if ref_lines[i] < cur then
+        target = ref_lines[i]
+        break
+      end
     end
+    if not target then
+      target = ref_lines[#ref_lines]
+    end
+  end
 
-    self:_update_lines(false)
-    utils.echo(('Found %d reference(s) for "%s"'):format(#ref_children, node.name))
-  end)
+  if target and vim.api.nvim_win_is_valid(self.view.win) then
+    vim.api.nvim_win_set_cursor(self.view.win, { target, 0 })
+  end
 end
 
--- ╓─────────────────────────────────────────────────────────────────────────────╖
--- ║                                   QUICKFIX                                  ║
--- ╙─────────────────────────────────────────────────────────────────────────────╜
+-- ├────────────────────────────────┤ Quickfix ├────────────────────────────────┤
 
 ---@param is_loc? boolean
 function Sidebar:__add_to_qf(is_loc)

@@ -134,6 +134,8 @@ M.defaults = {
     filter_symbols = 'S',
     rename_symbol = 'R',
     reference_symbol = 'r',
+    next_ref_node = ']r',
+    prev_ref_node = '[r',
     hover_symbol = '<C-space>',
 
     open_in_vsplit = '<C-v>',
