@@ -151,15 +151,6 @@ M.freeze = M.freeze_outline
 M.unfreeze = M.unfreeze_outline
 M.toggle_freeze = M.toggle_freeze_outline
 
----Show LSP references of the symbol under cursor in the outline window.
----References appear as child nodes under the symbol with filename:line labels.
----Call again on the same symbol to collapse them.
-function M.show_references()
-  return M._sidebar_do('_show_references')
-end
-
-M.references = M.show_references
-
 ---Open the outline window.
 ---@param opts? outline.OutlineOpts Field focus_outline=false means don't focus on outline window after opening. If opts is not provided, focus will be on outline window after opening.
 function M.open_outline(opts)
@@ -377,10 +368,6 @@ With bang, don't switch cursor focus to outline window.",
   })
   cmd('ToggleFreeze', M.toggle_freeze_outline, {
     desc = 'Toggle frozen state of the outline.',
-    nargs = 0,
-  })
-  cmd('References', M.show_references, {
-    desc = 'Show LSP references of the symbol under cursor as child nodes in the outline.',
     nargs = 0,
   })
 end

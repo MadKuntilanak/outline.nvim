@@ -124,7 +124,7 @@ M.defaults = {
     up_and_jump = '<C-k>',
 
     save_to_qf = '<C-q>',
-    refresh_outline = 'R',
+    refresh = 'R',
 
     freeze = 'f',
     unfreeze = 'u',

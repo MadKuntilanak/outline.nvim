@@ -1,4 +1,5 @@
 local cfg = require('outline.config')
+local folding = require('outline.folding')
 local jsx = require('outline.providers.jsx')
 local lsp_utils = require('outline.utils.lsp')
 local utils = require('outline.utils')
@@ -254,6 +255,126 @@ function M.show_hover(sidebar)
     width = code_width,
   })
   utils.win_set_option(winnr, 'winhighlight', cfg.o.preview_window.winhl)
+  return true
+end
+
+---Show LSP references of the symbol under cursor as child nodes in the outline.
+---Each reference appears as `filename:line` under the symbol in the hierarchy.
+---Calling again on the same symbol toggles them off.
+---@param sidebar outline.Sidebar
+function M.show_references(sidebar)
+  if not sidebar.view:is_open() then
+    utils.echo('Outline is not open.')
+    return false
+  end
+  if not sidebar.provider then
+    utils.echo('No provider attached.')
+    return false
+  end
+
+  local node = sidebar:_current_node()
+  if not node then
+    utils.echo('No symbol under cursor.')
+    return false
+  end
+
+  -- Toggle off: restore original children.
+  if node._ref_shown then
+    node._ref_shown = nil
+    node.children = node._ref_orig_children
+    node._ref_orig_children = nil
+    if sidebar._ref_cache then
+      local cache_key = tostring(sidebar.code.buf) .. ':' .. tostring(node.line)
+      sidebar._ref_cache[cache_key] = nil
+    end
+    sidebar:_update_lines(false)
+    return true
+  end
+
+  -- node.line/character = selection start (0-based) for LSP position params.
+  -- node.range_start/range_end = plain line numbers (not tables).
+  local params = {
+    textDocument = { uri = vim.uri_from_bufnr(sidebar.code.buf) },
+    position = {
+      line = node.line,
+      character = node.character,
+    },
+    context = { includeDeclaration = false },
+  }
+
+  utils.echo('Fetching references…')
+
+  vim.lsp.buf_request(sidebar.code.buf, 'textDocument/references', params, function(err, result)
+    if err or not result or #result == 0 then
+      utils.echo('No references found.')
+      return
+    end
+
+    local ref_children = {}
+    for _, loc in ipairs(result) do
+      local fname = vim.uri_to_fname(loc.uri)
+      local short = fname:match('([^/\\]+)$') or fname
+      local lnum = loc.range.start.line + 1
+
+      local ref_depth = (node.depth or 1) + 1
+      -- hierarchy: array of isLast booleans for each ancestor level,
+      -- used by build_outline to draw tree guide prefix chars.
+      local ref_hir = {}
+      for i, v in ipairs(node.hierarchy or {}) do
+        ref_hir[i] = v
+      end
+      table.insert(ref_hir, (#result == #ref_children + 1)) -- isLast for parent level
+
+      ref_children[#ref_children + 1] = {
+        _i = 1,
+        isLast = false,
+        hierarchy = ref_hir,
+        depth = ref_depth,
+        parent = node,
+        -- symbol fields
+        name = short .. ':' .. lnum,
+        kind = node.kind,
+        icon = (cfg.o.references and cfg.o.references.icon) or '󰌹 ',
+        detail = nil,
+        deprecated = false,
+        -- match parser.lua convention: plain line numbers
+        line = loc.range.start.line,
+        character = loc.range.start.character,
+        range_start = loc.range.start.line,
+        range_end = loc.range['end'].line,
+        -- jump logic: open this file instead of code.buf
+        _is_ref = true,
+        _ref_file = fname,
+        children = {},
+      }
+    end
+
+    if #ref_children > 0 then
+      ref_children[#ref_children].isLast = true
+    end
+
+    -- Inject references as children; stash originals for toggle-off.
+    node._ref_orig_children = node.children
+    node._ref_shown = true
+    node.children = ref_children
+
+    if folding.is_foldable(node) and folding.is_folded(node) then
+      node.folded = false
+    end
+
+    -- Persist to cache so references survive buffer switches.
+    -- Key: "<bufnr>:<line>" — unique per symbol per buffer.
+    sidebar._ref_cache = sidebar._ref_cache or {}
+    local cache_key = tostring(sidebar.code.buf) .. ':' .. tostring(node.line)
+    sidebar._ref_cache[cache_key] = {
+      node_name = node.name,
+      orig_children = node._ref_orig_children,
+      ref_children = ref_children,
+    }
+
+    sidebar:_update_lines(false)
+    utils.echo(('Found %d reference(s) for "%s"'):format(#ref_children, node.name))
+  end)
   return true
 end
 
