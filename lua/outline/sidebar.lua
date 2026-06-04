@@ -1072,7 +1072,7 @@ function Sidebar:_open_with(opts)
   vim.cmd(opts.mode)
   vim.cmd('wincmd =')
 
-  local cur_win = 0 -- set new current win id
+  local cur_win = vim.api.nvim_get_current_win()
 
   vim.fn.win_execute(cur_win, "normal! m'")
   vim.api.nvim_win_set_cursor(cur_win, { node.line + 1, node.character })

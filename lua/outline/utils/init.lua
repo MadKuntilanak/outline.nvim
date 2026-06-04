@@ -33,28 +33,18 @@ function M.flash_highlight(winnr, lnum, durationMs, hl_group)
   if durationMs == false then
     return
   end
+
   hl_group = hl_group or 'Visual'
+
   if durationMs == true or durationMs == 1 then
     durationMs = 400
   end
-  local bufnr = vim.api.nvim_win_get_buf(winnr)
-  local ns
-  if _G._outline_nvim_has[11] then
-    ns = vim.api.nvim_create_namespace('_outline_nvim_flash')
-    vim.hl.range(bufnr, ns, hl_group, { lnum - 1, 0 }, { lnum - 1, -1 })
-  else
-    if _G._outline_nvim_has[11] then
-      vim.hl.range(bufnr, 0, hl_group, { lnum - 1, 0 }, { lnum - 1, -1 })
-      ns = 0
-    else
-      ---@diagnostic disable-next-line:deprecated
-      ns = vim.api.nvim_buf_add_highlight(bufnr, 0, hl_group, lnum - 1, 0, -1)
-    end
-  end
-  local remove_highlight = function()
-    pcall(vim.api.nvim_buf_clear_namespace, bufnr, ns, 0, -1)
-  end
-  vim.defer_fn(remove_highlight, durationMs)
+
+  local matchid = vim.fn.matchaddpos(hl_group, { { lnum } }, 10, -1, { window = winnr })
+
+  vim.defer_fn(function()
+    pcall(vim.fn.matchdelete, matchid, winnr)
+  end, durationMs)
 end
 
 ---@param module string   Used as message if second param omitted
