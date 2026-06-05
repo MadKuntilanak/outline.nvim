@@ -314,7 +314,7 @@ function LivePreview:show()
   end
 
   if not vim.api.nvim_win_is_valid(self.s.code.win) or not self.s.provider then
-    return
+    self.s.code.win = self.s:__resolve_handle_code_win(self.s.code.win)
   end
 
   local node = self.s:_current_node()

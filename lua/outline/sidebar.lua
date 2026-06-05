@@ -713,6 +713,83 @@ function Sidebar:_current_node()
   end
 end
 
+---@param code_win? integer
+---@return integer
+function Sidebar:__resolve_handle_code_win(code_win)
+  code_win = code_win or self.code.win
+
+  local target_buf, fname
+
+  if self._frozen or self._freeze_snapshot then
+    local snap = self._freeze_snapshot
+    target_buf = snap.buf
+    fname = snap.filename
+  else
+    target_buf = self.code.buf
+    fname = vim.api.nvim_buf_get_name(target_buf)
+  end
+
+  if not vim.api.nvim_buf_is_valid(target_buf) and fname and fname ~= '' then
+    vim.cmd.edit(vim.fn.fnameescape(fname))
+    target_buf = vim.api.nvim_get_current_buf()
+  end
+
+  local curtab = vim.api.nvim_get_current_tabpage()
+  local wins = vim.api.nvim_tabpage_list_wins(curtab)
+
+  for _, w in ipairs(wins) do
+    local w_buf = vim.api.nvim_win_get_buf(w)
+    if w_buf == target_buf then
+      code_win = w
+      break
+    end
+  end
+
+  if code_win and vim.api.nvim_win_is_valid(code_win) then
+    self.code.win = code_win
+    vim.api.nvim_win_set_buf(code_win, target_buf)
+    return code_win
+  end
+
+  -- Fallback to another valid window if `code_win` still cannot be resolved.
+  -- Find a replacement window when the resolved code window is invalid.
+  local fallback_win = nil
+  for _, w in ipairs(wins) do
+    if w ~= self.view.win and vim.api.nvim_win_is_valid(w) then
+      fallback_win = w
+      break
+    end
+  end
+
+  if fallback_win then
+    code_win = fallback_win
+    local buf_to_set = vim.api.nvim_buf_is_valid(target_buf) and target_buf
+      or (fname and fname ~= '' and vim.fn.bufnr(fname) ~= -1 and vim.fn.bufnr(fname))
+      or nil
+    if buf_to_set then
+      utils.echo('Previous code window was closed. Restoring code view.')
+
+      -- unplan: add scratch buffer
+      -- local scratch = vim.api.nvim_create_buf(false, true)
+      -- vim.bo[scratch].bufhidden = 'hide'
+      -- vim.bo[scratch].buftype = 'nofile'
+      --
+      -- code_win = vim.api.nvim_open_win(scratch, false, {
+      --   win = fallback_win,
+      --   split = 'right',
+      -- })
+
+      code_win = vim.api.nvim_open_win(buf_to_set, false, {
+        win = fallback_win,
+        split = 'right',
+      })
+      self.code.win = code_win
+    end
+  end
+
+  return code_win
+end
+
 ---@param change_focus boolean Whether to switch to code window after setting cursor
 function Sidebar:__goto_location(change_focus)
   if not self.provider then
@@ -724,12 +801,7 @@ function Sidebar:__goto_location(change_focus)
   end
 
   if not vim.api.nvim_win_is_valid(self.code.win) then
-    local msg_notify = 'outline.nvim: Code window closed'
-    if node then
-      msg_notify = 'outline.nvim: Waiting for symbols...'
-    end
-    vim.notify(msg_notify, vim.log.levels.WARN)
-    return
+    self.code.win = self:__resolve_handle_code_win(self.code.win)
   end
 
   -- Reference node pointing to a different file (e.g. from OutlineReferences).
@@ -1043,8 +1115,7 @@ function Sidebar:_open_with(opts)
   end
 
   if not vim.api.nvim_win_is_valid(self.code.win) then
-    vim.notify('outline.nvim: Code window closed', vim.log.levels.WARN)
-    return
+    self.code.win = self:__resolve_handle_code_win(self.code.win)
   end
 
   if opts.float then
@@ -1066,22 +1137,12 @@ function Sidebar:_open_with(opts)
   vim.cmd(opts.mode)
   vim.cmd('wincmd =')
 
-  local cur_win = vim.api.nvim_get_current_win()
+  local curwin = vim.api.nvim_get_current_win()
+  vim.api.nvim_set_current_win(curwin)
+  self.code.win = curwin
 
-  vim.fn.win_execute(cur_win, "normal! m'")
-  vim.api.nvim_win_set_cursor(cur_win, { node.line + 1, node.character })
-
-  if cfg.o.outline_window.center_on_jump then
-    vim.fn.win_execute(self.code.win, 'normal! zz')
-  end
-
-  utils.flash_highlight(
-    cur_win,
-    node.line + 1,
-    cfg.o.outline_window.jump_highlight_duration,
-    'OutlineJumpHighlight'
-  )
-  self._auto_open_line_folded(self, node)
+  local change_focus = true
+  self:__goto_location(change_focus)
 end
 
 ---@param response outline.ProviderSymbol[]
@@ -1827,8 +1888,14 @@ function Sidebar:_thaw()
   self:_freeze_indicator_close()
   -- Re-attach follow-cursor autocmds for the current code buffer.
   self:setup_attached_buffer_autocmd()
-  -- Immediately refresh to pick up wherever the user currently is.
-  self:__refresh(false, false)
+
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    self.code.win = self:__resolve_handle_code_win(self.code.win)
+  else
+    -- Immediately refresh to pick up wherever the user currently is.
+    self:__refresh(false, false)
+  end
+
   utils.echo('Outline unfrozen.')
 end
 
