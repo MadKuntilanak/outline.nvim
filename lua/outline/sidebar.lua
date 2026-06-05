@@ -829,9 +829,8 @@ function Sidebar:__goto_location(change_focus)
           return
         end
       end
+      utils.set_cursor_safe(self.code.win, node.line, node.character)
     end)
-
-    vim.api.nvim_win_set_cursor(self.code.win, { node.line + 1, node.character })
 
     if cfg.o.outline_window.center_on_jump then
       vim.fn.win_execute(self.code.win, 'normal! zz')
@@ -855,7 +854,7 @@ function Sidebar:__goto_location(change_focus)
   -- XXX: There will be strange problems when using `nvim_buf_set_mark()`.
   vim.fn.win_execute(self.code.win, "normal! m'")
 
-  vim.api.nvim_win_set_cursor(self.code.win, { node.line + 1, node.character })
+  utils.set_cursor_safe(self.code.win, node.line, node.character)
 
   if cfg.o.outline_window.center_on_jump then
     vim.fn.win_execute(self.code.win, 'normal! zz')
@@ -920,6 +919,11 @@ function Sidebar:_toggle_fold(move_cursor)
   if not node then
     return
   end
+
+  if not vim.api.nvim_win_is_valid(self.code.win) then
+    self.code.win = self:__resolve_handle_code_win(self.code.win)
+  end
+
   local is_folded = folding.is_folded(node)
 
   if folding.is_foldable(node) then

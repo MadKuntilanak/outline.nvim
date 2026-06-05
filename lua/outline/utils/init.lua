@@ -247,6 +247,16 @@ function M.render_filter_text(cfg)
   return filter_text
 end
 
+---@param win integer
+---@param line integer
+---@param col integer
+function M.set_cursor_safe(win, line, col)
+  local buf = vim.api.nvim_win_get_buf(win)
+  local line_count = vim.api.nvim_buf_line_count(buf)
+  local safe_line = math.min(math.max(line + 1, 1), line_count)
+  vim.api.nvim_win_set_cursor(win, { safe_line, col })
+end
+
 local results = {
   quickfix = {
     title = '',
