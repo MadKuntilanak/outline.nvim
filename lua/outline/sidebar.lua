@@ -517,6 +517,7 @@ function Sidebar:refresh_handler(response, request_buf)
 
   self._symbols_cache[curbuf] = vim.deepcopy(self.items)
 
+  -- Re-inject any cached references for this buffer.
   -- Restores _ref_shown state for nodes matching by name+line after
   -- the user returns to this buffer from another buffer.
   if self._ref_cache then
@@ -618,27 +619,10 @@ function Sidebar:__refresh(is_force, is_current)
   if is_force then
     if self._frozen then
       self._frozen = false
-      self._freeze_snapshot = nil
       self:_freeze_indicator_close()
     end
 
-    for _, node in ipairs(self.flats or {}) do
-      if node._ref_shown then
-        node._ref_shown = nil
-        node.children = node._ref_orig_children or {}
-        node._ref_orig_children = nil
-      end
-    end
-
-    -- Clear ref cache for current buf so force-refresh starts fresh.
-    if self._ref_cache then
-      local buf_prefix = tostring(self.code.buf) .. ':'
-      for k in pairs(self._ref_cache) do
-        if k:sub(1, #buf_prefix) == buf_prefix then
-          self._ref_cache[k] = nil
-        end
-      end
-    end
+    self:__clean_ref()
 
     if not self.provider then
       self.provider, self.provider_info = providers.find_provider()
@@ -1000,6 +984,12 @@ function Sidebar:open(opts)
     opts = { focus_outline = true }
   end
 
+  self:__clean_ref()
+
+  if self._frozen then
+    self:_thaw()
+  end
+
   if not self.view:is_open() then
     -- Cleanup ghost buffer
     local target_name = 'Outline'
@@ -1134,6 +1124,7 @@ end
 function Sidebar:close()
   local code_win = self.code.win
   self:_freeze_indicator_close()
+  self:__clean_ref()
   self.view:close()
   self.preview:close()
   vim.fn.win_gotoid(code_win)
@@ -1833,7 +1824,6 @@ end
 ---Thaw a frozen outline: resume normal follow/watch behaviour.
 function Sidebar:_thaw()
   self._frozen = false
-  self._freeze_snapshot = nil
   self:_freeze_indicator_close()
   -- Re-attach follow-cursor autocmds for the current code buffer.
   self:setup_attached_buffer_autocmd()
@@ -1851,6 +1841,48 @@ function Sidebar:_toggle_freeze()
   else
     self:_freeze()
     return true
+  end
+end
+
+---Clean all expanded references and their cache for self.code.buf.
+function Sidebar:__clean_ref()
+  -- Clear cache entries first
+  if self._ref_cache then
+    local buf_prefix = tostring(self.code.buf) .. ':'
+    for k in pairs(self._ref_cache) do
+      if k:sub(1, #buf_prefix) == buf_prefix then
+        self._ref_cache[k] = nil
+      end
+    end
+  end
+
+  -- Recursively restore original children for any _ref_shown node
+  local function clean(nodes)
+    if not nodes then
+      return
+    end
+    for _, node in ipairs(nodes) do
+      if node._ref_shown then
+        node._ref_shown = nil
+        node.children = node._ref_orig_children or {}
+        node._ref_orig_children = nil
+      else
+        clean(node.children)
+      end
+    end
+  end
+  clean(self.items)
+
+  -- Clear virt_text extmarks for ref markers directly from the namespace.
+  -- This is necessary when __clean_ref is called before the outline window
+  -- is open (e.g. on Outline! re-open), where _update_lines cannot run yet.
+  local hl_mod = require('outline.highlight')
+  if self.view and self.view.buf and vim.api.nvim_buf_is_valid(self.view.buf) then
+    vim.api.nvim_buf_clear_namespace(self.view.buf, hl_mod.ns.vt, 0, -1)
+  end
+
+  if self.view:is_open() then
+    self:_update_lines(false)
   end
 end
 
