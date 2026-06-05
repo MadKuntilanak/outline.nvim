@@ -182,6 +182,7 @@ function M.setup()
     Details = 'Comment',
     Lineno = 'LineNr',
     JumpHighlight = 'Visual',
+    JumpHighlightNode = 'CurSearch',
     HelpTip = 'Comment',
     StatusFt = 'Type',
     StatusProvider = 'Special',

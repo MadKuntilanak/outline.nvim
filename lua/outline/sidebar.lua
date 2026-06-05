@@ -785,7 +785,9 @@ function Sidebar:__goto_location(change_focus)
       self.code.win,
       node.line + 1,
       cfg.o.outline_window.jump_highlight_duration,
-      'OutlineJumpHighlight'
+      'OutlineJumpHighlight',
+      { start_col = node.character, end_col = node.character + #node.name },
+      'OutlineJumpHighlightNode'
     )
 
     if change_focus then
@@ -807,7 +809,9 @@ function Sidebar:__goto_location(change_focus)
     self.code.win,
     node.line + 1,
     cfg.o.outline_window.jump_highlight_duration,
-    'OutlineJumpHighlight'
+    'OutlineJumpHighlight',
+    { start_col = node.character, end_col = node.character + #node.name },
+    'OutlineJumpHighlightNode'
   )
 
   if change_focus then

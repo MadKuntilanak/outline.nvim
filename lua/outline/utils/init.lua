@@ -29,7 +29,13 @@ function M.debounce(f, delay)
   end
 end
 
-function M.flash_highlight(winnr, lnum, durationMs, hl_group)
+---@param winnr integer
+---@param lnum integer 1-based line number
+---@param durationMs number|boolean
+---@param hl_group? string highlight group for the whole line
+---@param node_range? {start_col: integer, end_col: integer} column range for symbol highlight
+---@param node_hl_group? string highlight group for the symbol range (default: 'CurSearch')
+function M.flash_highlight(winnr, lnum, durationMs, hl_group, node_range, node_hl_group)
   if durationMs == false then
     return
   end
@@ -40,10 +46,28 @@ function M.flash_highlight(winnr, lnum, durationMs, hl_group)
     durationMs = 400
   end
 
+  -- Highlight the whole line.
   local matchid = vim.fn.matchaddpos(hl_group, { { lnum } }, 10, -1, { window = winnr })
+
+  -- Optionally highlight a specific column range within the line (e.g. symbol name).
+  local node_matchid
+  if node_range then
+    node_hl_group = node_hl_group or 'CurSearch'
+    -- matchaddpos col range: {lnum, col, length} — cols are 1-based.
+    node_matchid = vim.fn.matchaddpos(
+      node_hl_group,
+      { { lnum, node_range.start_col + 1, node_range.end_col - node_range.start_col } },
+      11, -- higher priority than line hl
+      -1,
+      { window = winnr }
+    )
+  end
 
   vim.defer_fn(function()
     pcall(vim.fn.matchdelete, matchid, winnr)
+    if node_matchid then
+      pcall(vim.fn.matchdelete, node_matchid, winnr)
+    end
   end, durationMs)
 end
 
