@@ -281,6 +281,22 @@ function M.is_loclist(buf)
   return vim.fn.getloclist(buf, { filewinid = 1 }).filewinid ~= 0
 end
 
+function M.is_vim_list_open()
+  local curbuf = vim.api.nvim_get_current_buf()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if curbuf == buf then
+      if M.is_loclist(win) then
+        return true, 'loclist'
+      end
+      if vim.bo[buf].filetype == 'qf' then
+        return true, 'quickfix'
+      end
+    end
+  end
+  return false, 'none'
+end
+
 ---@param list_items table
 ---@param is_loc? boolean
 ---@param winid? integer
@@ -298,22 +314,6 @@ function M.save_to_qf(list_items, is_loc, mode, winid)
 
   winid = winid or vim.api.nvim_get_current_win()
   vim.fn.setloclist(winid, {}, mode, opts)
-end
-
-function M.is_vim_list_open()
-  local curbuf = vim.api.nvim_get_current_buf()
-  for _, win in ipairs(vim.api.nvim_list_wins()) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    if curbuf == buf then
-      if M.is_loclist(win) then
-        return true, 'loclist'
-      end
-      if vim.bo[buf].filetype == 'qf' then
-        return true, 'quickfix'
-      end
-    end
-  end
-  return false, 'none'
 end
 
 return M

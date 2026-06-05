@@ -647,10 +647,6 @@ the outline window.
     Unfreeze the outline and resume normal follow/watch behaviour.
 - **:OutlineToggleFreeze**                              *:OutlineToggleFreeze*
     Toggle frozen state of the outline.
-- **:OutlineReferences**                                  *:OutlineReferences*
-    Show LSP references of the symbol under cursor in the outline as
-    collapsible child nodes (filename:line). Call again on the same symbol
-    to collapse them. See |outline-references|.
 
 
 DEFAULT KEYMAPS                                      *outline-default-keymaps*
@@ -1332,7 +1328,7 @@ outline cursor as collapsible child nodes directly in the outline hierarchy.
 USAGE ~
 
 1. Open the outline and navigate to a symbol (e.g. a function).
-2. Press `r` (default `reference_symbol` keymap) or run `:OutlineReferences`.
+2. Press `r` (default `reference_symbol` keymap).
 3. Child nodes appear under the symbol, each labelled `filename:line`.
    A virtual text marker (default `󰆽`) appears at end-of-line on the
    parent symbol to indicate references are expanded.
