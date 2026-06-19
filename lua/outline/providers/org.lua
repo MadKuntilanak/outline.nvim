@@ -38,16 +38,26 @@ end
 ---@param callback fun(symbols?:outline.ProviderSymbol[], opts?:table)
 ---@param opts table
 function M.request_symbols(callback, opts)
-  if not M.parser then
-    local status, parser = pcall(vim.treesitter.get_parser, 0, 'org')
-    if not status or not parser then
-      callback(nil, opts)
-      return
-    end
-    M.parser = parser
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    callback(nil, opts)
+    return
   end
 
-  local root = M.parser:parse()[1]:root()
+  local ok, parser = pcall(vim.treesitter.get_parser, bufnr, 'org')
+  if not ok or not parser then
+    callback(nil, opts)
+    return
+  end
+
+  local ok_parse, trees = pcall(parser.parse, parser)
+  if not ok_parse or not trees or not trees[1] then
+    callback(nil, opts)
+    return
+  end
+
+  local root = trees[1]:root()
   if not root then
     callback(nil, opts)
     return
@@ -68,19 +78,18 @@ function M.request_symbols(callback, opts)
     query = vim.treesitter.query.parse_query('org', query_str)
   end
 
-  local buf_line_count = vim.api.nvim_buf_line_count(0)
+  local buf_line_count = vim.api.nvim_buf_line_count(bufnr)
   local headings = {}
 
   ---@diagnostic disable-next-line: missing-parameter
-  for _, match, _ in query:iter_matches(root, 0) do
+  for _, match, _ in query:iter_matches(root, bufnr) do
     local stars_node = nil
     local name_node = nil
 
     for id, node in pairs(match) do
       local cap = query.captures[id]
-      -- Neovim >= 0.10: iter_matches returns { [id] = {node, ...} }
-      -- Neovim < 0.10:  iter_matches returns { [id] = node }
       local actual_node = type(node) == 'table' and node[1] or node
+
       if cap == 'stars' then
         stars_node = actual_node
       elseif cap == 'name' then
@@ -90,25 +99,33 @@ function M.request_symbols(callback, opts)
 
     if stars_node and name_node then
       local sr, sc, er, ec = stars_node:range()
-      local ok, result = pcall(vim.api.nvim_buf_get_text, 0, sr, sc, er, ec, {})
-      if not ok then
+
+      local ok_text, result = pcall(vim.api.nvim_buf_get_text, bufnr, sr, sc, er, ec, {})
+
+      if not ok_text then
         goto next_tag
       end
+
       local stars_text = result[1] or ''
       local level = #(stars_text:match('^%*+') or '')
+
       if level == 0 then
         level = 1
       end
 
       local row1, col1, row2, col2 = name_node:range()
-      local ok2, result2 = pcall(vim.api.nvim_buf_get_text, 0, row1, col1, row2, col2, {})
-      if not ok2 then
+
+      local ok_title, result2 = pcall(vim.api.nvim_buf_get_text, bufnr, row1, col1, row2, col2, {})
+
+      if not ok_title then
         goto next_tag
       end
+
       local title = result2[1] or ''
       title = title:gsub('^%s+', ''):gsub('%s+$', '')
-      title = title:gsub('^%u+%s+', '') -- strip TODO keywords
-      title = title:gsub('%s*:[%w_@#%%:]+:%s*$', '') -- strip :tags:
+      title = title:gsub('^%u+%s+', '')
+      title = title:gsub('%s*:[%w_@#%%:]+:%s*$', '')
+
       if title == '' then
         title = '(untitled)'
       end
@@ -116,6 +133,7 @@ function M.request_symbols(callback, opts)
       local headline_node = name_node:parent()
       local section_node = headline_node and headline_node:parent()
       local range_node = section_node or headline_node
+
       local rr1, rc1 = range_node:range()
 
       table.insert(headings, {
@@ -140,12 +158,14 @@ function M.request_symbols(callback, opts)
 
   for i, h in ipairs(headings) do
     local end_line = buf_line_count - 1
+
     for j = i + 1, #headings do
       if headings[j].level <= h.level then
         end_line = headings[j].line_num - 1
         break
       end
     end
+
     h.range['end'].line = end_line
   end
 
@@ -154,12 +174,15 @@ function M.request_symbols(callback, opts)
 
   for _, heading in ipairs(headings) do
     while #stack > 1 and stack[#stack].level >= heading.level do
-      table.remove(stack, #stack)
+      table.remove(stack)
     end
 
     local parent = stack[#stack].node
     table.insert(parent.children, heading)
-    table.insert(stack, { level = heading.level, node = heading })
+    table.insert(stack, {
+      level = heading.level,
+      node = heading,
+    })
   end
 
   rec_remove_field(result, 'level')

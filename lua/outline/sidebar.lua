@@ -585,6 +585,7 @@ function Sidebar:__refresh(is_force, is_current)
     -- Pause auto-refresh while references are expanded on the attached buffer.
     -- Only guard when still on the same buffer; switching buffers must proceed.
     local cur = vim.api.nvim_get_current_buf()
+
     if cur == self.code.buf then
       for _, node in ipairs(self.flats or {}) do
         if node._ref_shown then
@@ -599,10 +600,22 @@ function Sidebar:__refresh(is_force, is_current)
 
     if self.provider then
       local request_buf = self.code.buf
+
       self.provider.request_symbols(function(res)
-        if self.view:is_open() then
-          self:refresh_handler(res, request_buf)
+        if not self.view:is_open() then
+          return
         end
+
+        -- Ignore stale LSP responses after buffer changes.
+        if not vim.api.nvim_buf_is_valid(request_buf) then
+          return
+        end
+
+        if vim.api.nvim_get_current_buf() ~= request_buf then
+          return
+        end
+
+        self:refresh_handler(res, request_buf)
       end, nil, self.provider_info)
     end
   end
